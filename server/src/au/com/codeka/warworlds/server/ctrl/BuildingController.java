@@ -1,22 +1,21 @@
 package au.com.codeka.warworlds.server.ctrl;
 
-import java.sql.Statement;
 import java.util.ArrayList;
 
 import org.joda.time.DateTime;
 
-import au.com.codeka.common.model.BaseBuilding;
+import au.com.codeka.common.messages.Building;
+import au.com.codeka.common.messages.BuildingPosition;
+import au.com.codeka.common.messages.Colony;
+import au.com.codeka.common.messages.Star;
 import au.com.codeka.common.model.BuildingDesign;
 import au.com.codeka.common.model.DesignKind;
 import au.com.codeka.warworlds.server.RequestException;
 import au.com.codeka.warworlds.server.data.SqlResult;
 import au.com.codeka.warworlds.server.data.SqlStmt;
 import au.com.codeka.warworlds.server.data.Transaction;
-import au.com.codeka.warworlds.server.model.Building;
-import au.com.codeka.warworlds.server.model.BuildingPosition;
-import au.com.codeka.warworlds.server.model.Colony;
 import au.com.codeka.warworlds.server.model.DesignManager;
-import au.com.codeka.warworlds.server.model.Star;
+import au.com.codeka.warworlds.server.msghelpers.StarLoader;
 
 public class BuildingController {
     private DataBase db;
@@ -28,28 +27,33 @@ public class BuildingController {
         db = new DataBase(trans);
     }
 
-    public Building createBuilding(Star star, Colony colony, String designID, String notes) throws RequestException {
+    public void createBuilding(Star star, Colony colony, String designID, String notes)
+            throws RequestException {
         try {
-            Building building = new Building(star, colony, designID, notes);
+            Building building = new Building.Builder()
+                .colony_key(colony.key)
+                .design_name(designID)
+                .level(1)
+                .notes(notes)
+                .build();
             db.createBuilding(colony, building);
-            colony.getBuildings().add(building);
 
             // TODO: hard-coded?
-            if (building.getDesignID().equals("hq")) {
-                new EmpireController().setHomeStar(colony.getEmpireID(), star.getID());
+            if (designID.equals("hq")) {
+                new EmpireController().setHomeStar(Integer.parseInt(colony.empire_key),
+                        Integer.parseInt(star.key));
             }
-
-            return building;
         } catch(Exception e) {
             throw new RequestException(e);
         }
     }
 
-    public Building upgradeBuilding(Star star, Colony colony, int buildingID) throws RequestException {
+    public void upgradeBuilding(Star star, Colony colony, int buildingID) throws RequestException {
         Building existingBuilding = null;
-        for (BaseBuilding building : colony.getBuildings()) {
-            if (((Building) building).getID() == buildingID) {
-                existingBuilding = (Building) building;
+        for (Building building : star.buildings) {
+            if (Integer.parseInt(building.key) == buildingID
+                    && building.colony_key.equals(colony.key)) {
+                existingBuilding = building;
                 break;
             }
         }
@@ -57,14 +61,15 @@ public class BuildingController {
             throw new RequestException(404);
         }
 
-        BuildingDesign design = (BuildingDesign) DesignManager.i.getDesign(DesignKind.BUILDING, existingBuilding.getDesignID());
-        if (existingBuilding.getLevel() > design.getUpgrades().size()) {
-            return existingBuilding;
+        BuildingDesign design = (BuildingDesign) DesignManager.i.getDesign(DesignKind.BUILDING,
+                existingBuilding.design_name);
+        if (existingBuilding.level > design.getUpgrades().size()) {
+            // it's already at the max level, can't upgrade
+            return;
         }
 
         try {
             db.upgradeBuilding(existingBuilding);
-            return existingBuilding;
         } catch(Exception e) {
             throw new RequestException(e);
         }
@@ -91,25 +96,23 @@ public class BuildingController {
             String sql = "INSERT INTO buildings (star_id, colony_id, empire_id," +
                                                " design_id, build_time, level, notes)" +
                         " VALUES (?, ?, ?, ?, ?, ?, ?)";
-            try (SqlStmt stmt = prepare(sql, Statement.RETURN_GENERATED_KEYS)) {
-                stmt.setInt(1, colony.getStarID());
-                stmt.setInt(2, colony.getID());
-                stmt.setInt(3, colony.getEmpireID());
-                stmt.setString(4, building.getDesignID());
+            try (SqlStmt stmt = prepare(sql)) {
+                stmt.setInt(1, Integer.parseInt(colony.star_key));
+                stmt.setInt(2, Integer.parseInt(colony.key));
+                stmt.setInt(3, Integer.parseInt(colony.empire_key));
+                stmt.setString(4, building.design_name);
                 stmt.setDateTime(5, DateTime.now());
                 stmt.setInt(6, 1);
-                stmt.setString(7, building.getNotes());
+                stmt.setString(7, building.notes);
                 stmt.update();
-                building.setID(stmt.getAutoGeneratedID());
             }
         }
 
         public void upgradeBuilding(Building building) throws Exception {
             String sql = "UPDATE buildings SET level = level+1 WHERE id = ?";
             try (SqlStmt stmt = prepare(sql)) {
-                stmt.setInt(1, building.getID());
+                stmt.setInt(1, Integer.parseInt(building.key));
                 stmt.update();
-                building.setLevel(building.getLevel()+1);
             }
         }
 
@@ -133,7 +136,7 @@ public class BuildingController {
 
                 ArrayList<BuildingPosition> buildings = new ArrayList<BuildingPosition>();
                 while (res.next()) {
-                    buildings.add(new BuildingPosition(res));
+                    buildings.add(StarLoader.loadBuildingPosition(res));
                 }
                 return buildings;
             }

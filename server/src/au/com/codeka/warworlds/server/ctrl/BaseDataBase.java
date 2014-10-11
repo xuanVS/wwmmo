@@ -3,10 +3,10 @@ package au.com.codeka.warworlds.server.ctrl;
 import java.sql.SQLException;
 import java.util.Collection;
 
+import au.com.codeka.common.messages.ChatConversationParticipant;
 import au.com.codeka.warworlds.server.data.DB;
 import au.com.codeka.warworlds.server.data.SqlStmt;
 import au.com.codeka.warworlds.server.data.Transaction;
-import au.com.codeka.warworlds.server.model.ChatConversationParticipant;
 
 /**
  * This is our base "database" class that includes some common methods for working with the database.
@@ -47,7 +47,7 @@ public class BaseDataBase {
             if (i > 0) {
                 sb.append(", ");
             }
-            sb.append(participants[i].getEmpireID());
+            sb.append(participants[i].empire_id);
         }
         sb.append(")");
         return sb.toString();
