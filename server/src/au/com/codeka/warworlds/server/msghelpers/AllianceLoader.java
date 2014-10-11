@@ -12,7 +12,7 @@ import au.com.codeka.common.messages.AllianceRequest;
 import au.com.codeka.common.messages.AllianceRequestVote;
 import au.com.codeka.warworlds.server.data.SqlResult;
 
-public class AllianceHelper {
+public class AllianceLoader {
     public static Alliance loadAlliance(Integer id, SqlResult res) throws SQLException {
         return loadAlliance(id, res, null);
     }

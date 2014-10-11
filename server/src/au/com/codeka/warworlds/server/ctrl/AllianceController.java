@@ -16,11 +16,12 @@ import au.com.codeka.common.messages.AllianceRequestVote;
 import au.com.codeka.common.messages.CashAuditRecord;
 import au.com.codeka.common.messages.Empire;
 import au.com.codeka.common.messages.GenericError;
+import au.com.codeka.common.msghelpers.AllianceHelper;
 import au.com.codeka.warworlds.server.RequestException;
 import au.com.codeka.warworlds.server.data.SqlResult;
 import au.com.codeka.warworlds.server.data.SqlStmt;
 import au.com.codeka.warworlds.server.data.Transaction;
-import au.com.codeka.warworlds.server.msghelpers.AllianceHelper;
+import au.com.codeka.warworlds.server.msghelpers.AllianceLoader;
 import au.com.codeka.warworlds.server.utils.ImageSizer;
 
 public class AllianceController {
@@ -121,25 +122,13 @@ public class AllianceController {
         }
     }
 
-    public int getNumVotes(AllianceMember.Rank rank) {
-        switch(rank) {
-        case CAPTAIN:
-            return 10;
-        case LIEUTENANT:
-            return 5;
-        case MEMBER:
-        default:
-            return 1;
-        }
-    }
-
     public void vote(AllianceRequestVote vote) throws RequestException {
         try {
             Alliance alliance = db.getAlliance(vote.alliance_id);
             // normalize the number of votes they get by their rank in the alliance
             for (AllianceMember member : alliance.members) {
                 if (Integer.parseInt(member.empire_key) == vote.empire_id) {
-                    int numVotes = getNumVotes(member.rank);
+                    int numVotes = AllianceHelper.getNumVotes(member.rank);
                     if (vote.votes < 0) {
                         numVotes *= -1;
                     }
@@ -265,7 +254,7 @@ public class AllianceController {
 
                 ArrayList<Alliance> alliances = new ArrayList<Alliance>();
                 while (res.next()) {
-                    alliances.add(AllianceHelper.loadAlliance(null, res));
+                    alliances.add(AllianceLoader.loadAlliance(null, res));
                 }
                 return alliances;
             }
@@ -288,7 +277,7 @@ public class AllianceController {
                         stmt.setInt(1, allianceID);
                         SqlResult memberRes = memberStmt.select();
                         while (res.next()) {
-                            alliance = AllianceHelper.loadAlliance(null, res, memberRes);
+                            alliance = AllianceLoader.loadAlliance(null, res, memberRes);
                         }
                     }
                 }
@@ -391,7 +380,7 @@ public class AllianceController {
                 SqlResult res = stmt.select();
 
                 while (res.next()) {
-                    AllianceRequest request = AllianceHelper.loadAllianceRequest(res);
+                    AllianceRequest request = AllianceLoader.loadAllianceRequest(res);
                     requests.add(request);
 
                     if (!requestIDs.contains(request.id)) {
@@ -406,7 +395,7 @@ public class AllianceController {
                 try (SqlStmt stmt = prepare(sql)) {
                     SqlResult res = stmt.select();
                     while (res.next()) {
-                        AllianceRequestVote vote = AllianceHelper.loadAllianceRequestVote(res);
+                        AllianceRequestVote vote = AllianceLoader.loadAllianceRequestVote(res);
                         for (AllianceRequest request : requests) {
                             if (request.id == vote.alliance_request_id) {
                                 request.vote.add(vote);
@@ -426,7 +415,7 @@ public class AllianceController {
                 SqlResult res = stmt.select();
 
                 if (res.next()) {
-                    return AllianceHelper.loadAllianceRequest(res);
+                    return AllianceLoader.loadAllianceRequest(res);
                 }
             }
 
