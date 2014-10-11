@@ -24,7 +24,7 @@ public final class BuildRequest extends Message {
   public static final String DEFAULT_STAR_KEY = "";
   public static final Integer DEFAULT_PLANET_INDEX = 0;
   public static final BUILD_KIND DEFAULT_BUILD_KIND = BUILD_KIND.BUILDING;
-  public static final String DEFAULT_DESIGN_NAME = "";
+  public static final String DEFAULT_DESIGN_ID = "";
   public static final Integer DEFAULT_COUNT = 0;
   public static final Long DEFAULT_START_TIME = 0L;
   public static final Long DEFAULT_END_TIME = 0L;
@@ -64,10 +64,10 @@ public final class BuildRequest extends Message {
   public final BUILD_KIND build_kind;
 
   /**
-   * The name of the design you're trying to build
+   * The identifier of the design you're trying to build.
    */
   @ProtoField(tag = 5, type = STRING)
-  public final String design_name;
+  public final String design_id;
 
   /**
    * The number of things we're building in this single operation
@@ -118,14 +118,14 @@ public final class BuildRequest extends Message {
   @ProtoField(tag = 16, type = STRING)
   public final String notes;
 
-  public BuildRequest(String key, String colony_key, String empire_key, String star_key, Integer planet_index, BUILD_KIND build_kind, String design_name, Integer count, Long start_time, Long end_time, Float progress, String existing_building_key, Integer existing_building_level, Integer existing_fleet_id, String upgrade_id, String notes) {
+  public BuildRequest(String key, String colony_key, String empire_key, String star_key, Integer planet_index, BUILD_KIND build_kind, String design_id, Integer count, Long start_time, Long end_time, Float progress, String existing_building_key, Integer existing_building_level, Integer existing_fleet_id, String upgrade_id, String notes) {
     this.key = key;
     this.colony_key = colony_key;
     this.empire_key = empire_key;
     this.star_key = star_key;
     this.planet_index = planet_index;
     this.build_kind = build_kind;
-    this.design_name = design_name;
+    this.design_id = design_id;
     this.count = count;
     this.start_time = start_time;
     this.end_time = end_time;
@@ -138,7 +138,7 @@ public final class BuildRequest extends Message {
   }
 
   private BuildRequest(Builder builder) {
-    this(builder.key, builder.colony_key, builder.empire_key, builder.star_key, builder.planet_index, builder.build_kind, builder.design_name, builder.count, builder.start_time, builder.end_time, builder.progress, builder.existing_building_key, builder.existing_building_level, builder.existing_fleet_id, builder.upgrade_id, builder.notes);
+    this(builder.key, builder.colony_key, builder.empire_key, builder.star_key, builder.planet_index, builder.build_kind, builder.design_id, builder.count, builder.start_time, builder.end_time, builder.progress, builder.existing_building_key, builder.existing_building_level, builder.existing_fleet_id, builder.upgrade_id, builder.notes);
     setBuilder(builder);
   }
 
@@ -153,7 +153,7 @@ public final class BuildRequest extends Message {
         && equals(star_key, o.star_key)
         && equals(planet_index, o.planet_index)
         && equals(build_kind, o.build_kind)
-        && equals(design_name, o.design_name)
+        && equals(design_id, o.design_id)
         && equals(count, o.count)
         && equals(start_time, o.start_time)
         && equals(end_time, o.end_time)
@@ -175,7 +175,7 @@ public final class BuildRequest extends Message {
       result = result * 37 + (star_key != null ? star_key.hashCode() : 0);
       result = result * 37 + (planet_index != null ? planet_index.hashCode() : 0);
       result = result * 37 + (build_kind != null ? build_kind.hashCode() : 0);
-      result = result * 37 + (design_name != null ? design_name.hashCode() : 0);
+      result = result * 37 + (design_id != null ? design_id.hashCode() : 0);
       result = result * 37 + (count != null ? count.hashCode() : 0);
       result = result * 37 + (start_time != null ? start_time.hashCode() : 0);
       result = result * 37 + (end_time != null ? end_time.hashCode() : 0);
@@ -198,7 +198,7 @@ public final class BuildRequest extends Message {
     public String star_key;
     public Integer planet_index;
     public BUILD_KIND build_kind;
-    public String design_name;
+    public String design_id;
     public Integer count;
     public Long start_time;
     public Long end_time;
@@ -221,7 +221,7 @@ public final class BuildRequest extends Message {
       this.star_key = message.star_key;
       this.planet_index = message.planet_index;
       this.build_kind = message.build_kind;
-      this.design_name = message.design_name;
+      this.design_id = message.design_id;
       this.count = message.count;
       this.start_time = message.start_time;
       this.end_time = message.end_time;
@@ -274,10 +274,10 @@ public final class BuildRequest extends Message {
     }
 
     /**
-     * The name of the design you're trying to build
+     * The identifier of the design you're trying to build.
      */
-    public Builder design_name(String design_name) {
-      this.design_name = design_name;
+    public Builder design_id(String design_id) {
+      this.design_id = design_id;
       return this;
     }
 

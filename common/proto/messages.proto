@@ -840,8 +840,8 @@ message BuildRequest
     }
     optional BUILD_KIND build_kind = 4;
 
-    // The name of the design you're trying to build
-    optional string design_name = 5;
+    // The identifier of the design you're trying to build.
+    optional string design_id = 5;
 
     // The number of things we're building in this single operation
     optional int32 count = 9;
@@ -890,8 +890,8 @@ message Building
     // The key of the colony to which this building belongs.
     optional string colony_key = 2;
 
-    // The name of the design of this building (defined in data/buildings.xml)
-    optional string design_name = 3;
+    // The identifier of the design of this building (defined in data/buildings.xml)
+    optional string design_id = 3;
 
     // The level of this building
     optional int32 level = 4;

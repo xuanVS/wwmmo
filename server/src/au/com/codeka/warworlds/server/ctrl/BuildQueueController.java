@@ -7,24 +7,21 @@ import org.joda.time.DateTime;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import au.com.codeka.common.model.BaseBuildRequest;
-import au.com.codeka.common.model.BaseBuilding;
-import au.com.codeka.common.model.BaseFleet;
+import au.com.codeka.common.messages.BuildRequest;
+import au.com.codeka.common.messages.Colony;
+import au.com.codeka.common.messages.GenericError;
+import au.com.codeka.common.messages.Star;
 import au.com.codeka.common.model.BuildingDesign;
 import au.com.codeka.common.model.Design;
 import au.com.codeka.common.model.Design.Dependency;
 import au.com.codeka.common.model.DesignKind;
 import au.com.codeka.common.model.ShipDesign;
-import au.com.codeka.common.protobuf.Messages;
+import au.com.codeka.common.msghelpers.BuildHelper;
+import au.com.codeka.common.msghelpers.StarHelper;
 import au.com.codeka.warworlds.server.RequestException;
 import au.com.codeka.warworlds.server.data.SqlStmt;
 import au.com.codeka.warworlds.server.data.Transaction;
-import au.com.codeka.warworlds.server.model.BuildRequest;
-import au.com.codeka.warworlds.server.model.Building;
-import au.com.codeka.warworlds.server.model.Colony;
 import au.com.codeka.warworlds.server.model.DesignManager;
-import au.com.codeka.warworlds.server.model.Fleet;
-import au.com.codeka.warworlds.server.model.Star;
 
 public class BuildQueueController {
     private static final Logger log = LoggerFactory.getLogger(BuildQueueController.class);
@@ -38,28 +35,30 @@ public class BuildQueueController {
     }
 
     public void build(BuildRequest buildRequest) throws RequestException {
-        Star star = new StarController(db.getTransaction()).getStar(buildRequest.getStarID());
-        Colony colony = star.getColony(buildRequest.getColonyID());
+        Star star = new StarController(db.getTransaction()).getStar(
+                Integer.parseInt(buildRequest.star_key));
+        Colony colony = StarHelper.getColony(star, buildRequest.colony_key);
 
-        Design design = DesignManager.i.getDesign(buildRequest.getDesignKind(),
-                buildRequest.getDesignID());
+        Design design = DesignManager.i.getDesign(DesignKind.fromBuildKind(buildRequest.build_kind),
+                buildRequest.design_id);
 
-        if (buildRequest.getCount() <= 0) {
+        if (buildRequest.count <= 0) {
             throw new RequestException(400, "Cannot build negative count.");
         }
-        if (buildRequest.getDesignKind() == DesignKind.SHIP
-                && buildRequest.getCount() > design.getBuildCost().getMaxCount()
-                && buildRequest.getExistingFleetID() == null) {
-            buildRequest.setCount(design.getBuildCost().getMaxCount());
+        if (buildRequest.build_kind == BuildRequest.BUILD_KIND.SHIP
+                && buildRequest.count > design.getBuildCost().getMaxCount()
+                && buildRequest.existing_fleet_id == null) {
+            buildRequest = new BuildRequest.Builder(buildRequest).count(
+                    design.getBuildCost().getMaxCount()).build();
         }
 
         // check dependencies
         for (Design.Dependency dependency : design.getDependencies()) {
-            if (!dependency.isMet(colony)) {
+            if (!dependency.isMet(star, colony)) {
                 throw new RequestException(400,
-                        Messages.GenericError.ErrorCode.CannotBuildDependencyNotMet,
+                        GenericError.ErrorCode.CannotBuildDependencyNotMet,
                         String.format("Cannot build %s as level %d %s is required.",
-                                      buildRequest.getDesign().getDisplayName(),
+                                      BuildHelper.getDesign(buildRequest).getDisplayName(),
                                       dependency.getLevel(),
                                       design.getDisplayName()));
             }
