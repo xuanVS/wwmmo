@@ -12,7 +12,6 @@ import java.util.logging.SimpleFormatter;
 import org.joda.time.DateTime;
 
 import au.com.codeka.common.messages.ErrorReport;
-import au.com.codeka.common.protobuf.Messages;
 import au.com.codeka.warworlds.server.ctrl.ErrorReportsController;
 
 /**
