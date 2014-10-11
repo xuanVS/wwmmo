@@ -3,6 +3,7 @@
 
 package au.com.codeka.common.protobuf;
 
+@Deprecated
 public final class Messages {
   private Messages() {}
   public static void registerAllExtensions(

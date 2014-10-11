@@ -3,14 +3,11 @@ package au.com.codeka.warworlds.server;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.lang.reflect.Method;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.sql.SQLException;
-import java.util.List;
 import java.util.Map;
 import java.util.Random;
 
@@ -25,14 +22,16 @@ import org.json.simple.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import au.com.codeka.common.protobuf.Messages;
-import au.com.codeka.common.protoformat.PbFormatter;
-import au.com.codeka.warworlds.server.ctrl.NotificationController;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.squareup.wire.Message;
+import com.squareup.wire.Wire;
+import com.squareup.wire.WireTypeAdapterFactory;
+
 import au.com.codeka.warworlds.server.ctrl.SessionController;
 import au.com.codeka.warworlds.server.data.DB;
 import au.com.codeka.warworlds.server.handlers.admin.AdminGenericHandler;
 
-import com.google.protobuf.Message;
 
 /**
  * This is the base class for the game's request handlers. It handles some common tasks such as
@@ -45,6 +44,8 @@ public class RequestHandler {
     private Matcher mRouteMatcher;
     private Session mSession;
     private String mExtraOption;
+
+    protected static Wire wire = new Wire();
 
     protected String getUrlParameter(String name) {
         try {
@@ -186,31 +187,6 @@ public class RequestHandler {
             return;
         }
 
-        if (getSessionNoError() != null && getSessionNoError().allowInlineNotifications()) {
-            int empireID = getSessionNoError().getEmpireID();
-            List<Map<String, String>> notifications = new NotificationController()
-                    .getRecentNotifications(empireID);
-            if (notifications.size() > 0) {
-                Messages.NotificationWrapper.Builder notification_wrapper_pb =
-                        Messages.NotificationWrapper.newBuilder();
-                for (Map<String, String> notification : notifications) {
-                    for (String key : notification.keySet()) {
-                        String value = notification.get(key);
-                        Messages.Notification notification_pb = Messages.Notification.newBuilder()
-                                .setName(key)
-                                .setValue(value)
-                                .build();
-                        notification_wrapper_pb.addNotifications(notification_pb);
-                    }
-                }
-                notification_wrapper_pb.setOriginalMessage(pb.toByteString());
-                pb = notification_wrapper_pb.build();
-
-                // add a header so the client can know it's a notification wrapper
-                mResponse.setHeader("X-Notification-Wrapper", "1");
-            }
-        }
-
         if (mRequest.getHeader("Accept") != null) {
             for (String acceptValue : mRequest.getHeader("Accept").split(",")) {
                 if (acceptValue.startsWith("text/")) {
@@ -226,7 +202,8 @@ public class RequestHandler {
         mResponse.setContentType("application/x-protobuf");
         mResponse.setHeader("Content-Type", "application/x-protobuf");
         try {
-            pb.writeTo(mResponse.getOutputStream());
+            // TODO: is this the most efficient way?
+            mResponse.getOutputStream().write(pb.toByteArray());
         } catch (IOException e) {
         }
     }
@@ -235,7 +212,12 @@ public class RequestHandler {
         mResponse.setContentType("text/plain");
         mResponse.setCharacterEncoding("utf-8");
         try {
-            mResponse.getWriter().write(PbFormatter.toJson(pb));
+            Gson gson = new GsonBuilder()
+                    .registerTypeAdapterFactory(new WireTypeAdapterFactory(wire))
+                    .disableHtmlEscaping()
+                    .setPrettyPrinting()
+                    .create();
+            mResponse.getWriter().write(gson.toJson(pb));
         } catch (IOException e) {
         }
     }
@@ -244,7 +226,11 @@ public class RequestHandler {
         mResponse.setContentType("application/json");
         mResponse.setCharacterEncoding("utf-8");
         try {
-            mResponse.getWriter().write(PbFormatter.toJson(pb));
+            Gson gson = new GsonBuilder()
+                    .registerTypeAdapterFactory(new WireTypeAdapterFactory(wire))
+                    .disableHtmlEscaping()
+                    .create();
+            mResponse.getWriter().write(gson.toJson(pb));
         } catch (IOException e) {
         }
     }
@@ -314,10 +300,9 @@ public class RequestHandler {
         return (s != null && s.isAdmin());
     }
 
-    @SuppressWarnings({"unchecked"})
-    protected <T> T getRequestBody(Class<T> protoBuffFactory) {
+    protected <T extends Message> T getRequestBody(Class<T> messageClass) {
         if (mRequest.getHeader("Content-Type").equals("application/json")) {
-            return getRequestBodyJson(protoBuffFactory);
+            return getRequestBodyJson(messageClass);
         }
 
         T result = null;
@@ -325,8 +310,7 @@ public class RequestHandler {
 
         try {
             ins = mRequest.getInputStream();
-            Method m = protoBuffFactory.getDeclaredMethod("parseFrom", InputStream.class);
-            result = (T) m.invoke(null, ins);
+            return wire.parseFrom(ins, messageClass);
         } catch (Exception e) {
         } finally {
             if (ins != null) {
@@ -367,34 +351,23 @@ public class RequestHandler {
         return new File(path+"../").getAbsoluteFile();
     }
 
-    @SuppressWarnings("unchecked")
-    private <T> T getRequestBodyJson(Class<T> protoBuffFactory) {
-        String json = null;
-
-        InputStream ins;
+    private <T extends Message> T getRequestBodyJson(Class<T> messageClass) {
+        ServletInputStream ins = null;
         try {
             ins = mRequest.getInputStream();
             BufferedReader reader = new BufferedReader(new InputStreamReader(ins));
 
-            StringBuilder sb = new StringBuilder();
-            String line;
-            while ((line = reader.readLine()) != null) {
-                sb.append(line+" ");
+            Gson gson = new GsonBuilder()
+                .registerTypeAdapterFactory(new WireTypeAdapterFactory(wire))
+                .create();
+
+            return gson.fromJson(reader, messageClass);
+        } catch (Exception e) {
+            return null;
+        } finally {
+            if (ins != null) {
+                try { ins.close(); } catch (IOException e) {}
             }
-
-            json = sb.toString();
-        } catch (Exception e) {
-            return null;
-        }
-
-        try {
-            Method m = protoBuffFactory.getDeclaredMethod("newBuilder");
-            Message.Builder builder = (Message.Builder) m.invoke(null);
-
-            PbFormatter.fromJson(json, builder);
-            return (T) builder.build();
-        } catch (Exception e) {
-            return null;
         }
     }
 }

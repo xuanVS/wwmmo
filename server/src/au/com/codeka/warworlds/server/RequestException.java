@@ -4,7 +4,7 @@ import java.sql.SQLException;
 
 import javax.servlet.http.HttpServletResponse;
 
-import au.com.codeka.common.protobuf.Messages;
+import au.com.codeka.common.messages.GenericError;
 
 /**
  * This exception is thrown when you want to pass an error back to the client.
@@ -12,22 +12,22 @@ import au.com.codeka.common.protobuf.Messages;
 public class RequestException extends Exception {
     private static final long serialVersionUID = 1L;
 
-    private int mHttpErrorCode;
-    private Messages.GenericError mGenericError;
+    private int httpErrorCode;
+    private GenericError genericError;
 
     public RequestException(int httpErrorCode) {
         super(String.format("HTTP Error: %d", httpErrorCode));
-        mHttpErrorCode = httpErrorCode;
+        this.httpErrorCode = httpErrorCode;
     }
 
     public RequestException(int httpErrorCode, String message) {
         super(String.format(message, httpErrorCode));
-        mHttpErrorCode = httpErrorCode;
+        this.httpErrorCode = httpErrorCode;
     }
 
     public RequestException(int httpErrorCode, String message, Throwable innerException) {
         super(String.format(message, httpErrorCode), innerException);
-        mHttpErrorCode = httpErrorCode;
+        this.httpErrorCode = httpErrorCode;
     }
 
     public RequestException(Throwable innerException) {
@@ -35,17 +35,17 @@ public class RequestException extends Exception {
 
         RequestException reqExc = findInnerException(innerException, RequestException.class);
         if (reqExc != null) {
-            mHttpErrorCode = reqExc.mHttpErrorCode;
-            mGenericError = reqExc.mGenericError;
+            this.httpErrorCode = reqExc.httpErrorCode;
+            genericError = reqExc.genericError;
         } else {
-            mHttpErrorCode = 500;
+            httpErrorCode = 500;
         }
     }
 
     private static String getExceptionDescription(Throwable e) {
         RequestException reqExc = findInnerException(e, RequestException.class);
         if (reqExc != null) {
-            return "HTTP Error: " + reqExc.mHttpErrorCode;
+            return "HTTP Error: " + reqExc.httpErrorCode;
         }
 
         SQLException sqlExc = findInnerException(e, SQLException.class);
@@ -67,31 +67,31 @@ public class RequestException extends Exception {
         return null;
     }
 
-    public RequestException(int httpErrorCode, Messages.GenericError.ErrorCode errorCode, String errorMsg) {
+    public RequestException(int httpErrorCode, GenericError.ErrorCode errorCode, String errorMsg) {
         super(errorMsg);
 
-        mHttpErrorCode = httpErrorCode;
-        mGenericError = Messages.GenericError.newBuilder()
-                                .setErrorCode(errorCode.getNumber())
-                                .setErrorMessage(errorMsg)
-                                .build();
+        this.httpErrorCode = httpErrorCode;
+        genericError = new GenericError.Builder()
+            .error_code(errorCode.getValue())
+            .error_message(errorMsg)
+            .build();
     }
 
     public void populate(HttpServletResponse response) {
-        response.setStatus(mHttpErrorCode);
+        response.setStatus(httpErrorCode);
     }
 
     public int getHttpErrorCode() {
-        return mHttpErrorCode;
+        return httpErrorCode;
     }
 
-    public Messages.GenericError getGenericError() {
-        if (mGenericError == null) {
-            mGenericError = Messages.GenericError.newBuilder()
-                    .setErrorCode(Messages.GenericError.ErrorCode.UnknownError.getNumber())
-                    .setErrorMessage(getMessage())
-                    .build();
+    public GenericError getGenericError() {
+        if (genericError == null) {
+            genericError = new GenericError.Builder()
+                .error_code(GenericError.ErrorCode.UnknownError.getValue())
+                .error_message(getMessage())
+                .build();
         }
-        return mGenericError;
+        return genericError;
     }
 }
