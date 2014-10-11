@@ -1,25 +1,23 @@
 package au.com.codeka.warworlds.server.ctrl;
 
-import java.awt.geom.AffineTransform;
-import java.awt.image.AffineTransformOp;
-import java.awt.image.BufferedImage;
-import java.io.ByteArrayOutputStream;
 import java.util.Arrays;
 import java.util.TreeSet;
 
-import org.apache.commons.imaging.ImageFormat;
-import org.apache.commons.imaging.Imaging;
 import org.joda.time.DateTime;
 
 import au.com.codeka.common.messages.Alliance;
+import au.com.codeka.common.messages.AllianceMember;
 import au.com.codeka.common.messages.AllianceRequest;
+import au.com.codeka.common.messages.CashAuditRecord;
+import au.com.codeka.common.messages.GenericError;
+import au.com.codeka.common.msghelpers.AllianceHelper;
 import au.com.codeka.warworlds.server.RequestException;
 import au.com.codeka.warworlds.server.data.SqlStmt;
-
+import au.com.codeka.warworlds.server.utils.ImageSizer;
 
 /**
  * This is the base class for the alliance request processors (which are actually inner classes
- * of this class as well). For each \c RequestType, we may have different vote requirements,
+ * of this class as well). For each {@link RequestType}, we may have different vote requirements,
  * difference effects and so on.
  */
 public abstract class AllianceRequestProcessor {
@@ -27,7 +25,7 @@ public abstract class AllianceRequestProcessor {
      * Gets an \c AllianceRequestProcessor for the given \see AllianceRequest.
      */
     public static AllianceRequestProcessor get(Alliance alliance, AllianceRequest request) {
-        switch (request.getRequestType()) {
+        switch (request.request_type) {
         case JOIN:
             return new JoinRequestProcessor(alliance, request);
         case LEAVE:
@@ -44,7 +42,7 @@ public abstract class AllianceRequestProcessor {
             return new ChangeNameRequestProcessor(alliance, request);
         }
 
-        throw new UnsupportedOperationException("Unknown request type: " + request.getRequestType());
+        throw new UnsupportedOperationException("Unknown request type: " + request.request_type);
     }
 
     protected Alliance mAlliance;
@@ -55,18 +53,39 @@ public abstract class AllianceRequestProcessor {
         mAlliance = alliance;
     }
 
+    public static int getRequiredVotes(AllianceRequest.RequestType requestType) {
+        switch(requestType) {
+        case JOIN:
+            return 5;
+        case LEAVE:
+            return 0;
+        case KICK:
+            return 10;
+        case DEPOSIT_CASH:
+            return 0;
+        case WITHDRAW_CASH:
+            return 10;
+        case CHANGE_IMAGE:
+            return 10;
+        case CHANGE_NAME:
+            return 10;
+        default:
+            throw new IllegalArgumentException();
+        }
+    }
+
     /**
      * Called when we receive a vote for this request. If we've received enough votes, then the
      * request is passed. If we've received enough negative votes, the motion is denied.
      */
     public void onVote(AllianceController ctrl) throws Exception {
-        if (mRequest.getState() != AllianceRequest.RequestState.PENDING) {
+        if (mRequest.state != AllianceRequest.RequestState.PENDING) {
             throw new RequestException(400,
-                    Messages.GenericError.ErrorCode.CannotVoteOnNonPendingRequest,
+                    GenericError.ErrorCode.CannotVoteOnNonPendingRequest,
                     "Cannot vote on a request that is not PENDING.");
         }
 
-        int requiredVotes = mRequest.getRequestType().getRequiredVotes();
+        int requiredVotes = getRequiredVotes(mRequest.request_type);
         int totalPossibleVotes = getTotalPossibleVotes();
         if (requiredVotes > totalPossibleVotes) {
             requiredVotes = totalPossibleVotes;
@@ -75,33 +94,35 @@ public abstract class AllianceRequestProcessor {
             requiredVotes = 0;
         }
 
-        if (mRequest.getNumVotes() >= requiredVotes) {
+        if (mRequest.num_votes >= requiredVotes) {
             // if we have enough votes for a 'success', then this vote passes.
             onVotePassed(ctrl);
-        } else if (mRequest.getNumVotes() <= -requiredVotes) {
+        } else if (mRequest.num_votes <= -requiredVotes) {
             // if we have enough negative votes for a 'failure' then this vote fails.
             onVoteFailed(ctrl);
         }
     }
 
     protected void onVotePassed(AllianceController ctrl) throws Exception {
-        mRequest.setState(AllianceRequest.RequestState.ACCEPTED);
+        mRequest = new AllianceRequest.Builder(mRequest)
+                .state(AllianceRequest.RequestState.ACCEPTED).build();
 
         String sql = "UPDATE alliance_requests SET state = ? WHERE id = ?";
         try (SqlStmt stmt = ctrl.getDB().prepare(sql)) {
-            stmt.setInt(1, mRequest.getState().getNumber());
-            stmt.setInt(2, mRequest.getID());
+            stmt.setInt(1, mRequest.state.getValue());
+            stmt.setInt(2, mRequest.id);
             stmt.update();
         }
     }
 
     protected void onVoteFailed(AllianceController ctrl) throws Exception {
-        mRequest.setState(AllianceRequest.RequestState.REJECTED);
+        mRequest = new AllianceRequest.Builder(mRequest)
+        .state(AllianceRequest.RequestState.REJECTED).build();
 
         String sql = "UPDATE alliance_requests SET state = ? WHERE id = ?";
         try (SqlStmt stmt = ctrl.getDB().prepare(sql)) {
-            stmt.setInt(1, mRequest.getState().getNumber());
-            stmt.setInt(2, mRequest.getID());
+            stmt.setInt(1, mRequest.state.getValue());
+            stmt.setInt(2, mRequest.id);
             stmt.update();
         }
     }
@@ -112,11 +133,11 @@ public abstract class AllianceRequestProcessor {
      */
     protected int getTotalPossibleVotes() {
         TreeSet<Integer> excludingEmpires = new TreeSet<Integer>(
-                Arrays.asList(new Integer[] {mRequest.getRequestEmpireID()}));
-        if (mRequest.getTargetEmpireID() != null) {
-            excludingEmpires.add(mRequest.getTargetEmpireID());
+                Arrays.asList(new Integer[] {mRequest.request_empire_id}));
+        if (mRequest.target_empire_id != null) {
+            excludingEmpires.add(mRequest.target_empire_id);
         }
-        return mAlliance.getTotalPossibleVotes(excludingEmpires);
+        return AllianceHelper.getTotalPossibleVotes(mAlliance, excludingEmpires);
     }
 
     private static class JoinRequestProcessor extends AllianceRequestProcessor {
@@ -130,9 +151,9 @@ public abstract class AllianceRequestProcessor {
 
             String sql = "UPDATE empires SET alliance_id = ?, alliance_rank = ? WHERE id = ?";
             try (SqlStmt stmt = ctrl.getDB().prepare(sql)) {
-                stmt.setInt(1, mRequest.getAllianceID());
-                stmt.setInt(2, AllianceMember.Rank.MEMBER.getNumber());
-                stmt.setInt(3, mRequest.getRequestEmpireID());
+                stmt.setInt(1, mRequest.alliance_id);
+                stmt.setInt(2, AllianceMember.Rank.MEMBER.getValue());
+                stmt.setInt(3, mRequest.request_empire_id);
                 stmt.update();
             }
 
@@ -142,10 +163,10 @@ public abstract class AllianceRequestProcessor {
                    " AND state = ?" +
                    " AND request_empire_id = ?";
             try (SqlStmt stmt = ctrl.getDB().prepare(sql)) {
-                stmt.setInt(1, AllianceRequest.RequestState.WITHDRAWN.getNumber());
-                stmt.setInt(2, AllianceRequest.RequestType.JOIN.getNumber());
-                stmt.setInt(3, AllianceRequest.RequestState.PENDING.getNumber());
-                stmt.setInt(4, mRequest.getRequestEmpireID());
+                stmt.setInt(1, AllianceRequest.RequestState.WITHDRAWN.getValue());
+                stmt.setInt(2, AllianceRequest.RequestType.JOIN.getValue());
+                stmt.setInt(3, AllianceRequest.RequestState.PENDING.getValue());
+                stmt.setInt(4, mRequest.request_empire_id);
                 stmt.update();
             }
 
@@ -164,7 +185,7 @@ public abstract class AllianceRequestProcessor {
 
             String sql = "UPDATE empires SET alliance_id = NULL, alliance_rank = NULL WHERE id = ?";
             try (SqlStmt stmt = ctrl.getDB().prepare(sql)) {
-                stmt.setInt(1, mRequest.getRequestEmpireID());
+                stmt.setInt(1, mRequest.request_empire_id);
                 stmt.update();
             }
 
@@ -183,7 +204,7 @@ public abstract class AllianceRequestProcessor {
 
             String sql = "UPDATE empires SET alliance_id = NULL, alliance_rank = NULL WHERE id = ?";
             try (SqlStmt stmt = ctrl.getDB().prepare(sql)) {
-                stmt.setInt(1, mRequest.getTargetEmpireID());
+                stmt.setInt(1, mRequest.target_empire_id);
                 stmt.update();
             }
 
@@ -200,31 +221,31 @@ public abstract class AllianceRequestProcessor {
         protected void onVotePassed(AllianceController ctrl) throws Exception {
             super.onVotePassed(ctrl);
 
-            Messages.CashAuditRecord.Builder audit_record_pb = Messages.CashAuditRecord.newBuilder()
-                    .setEmpireId(mRequest.getRequestEmpireID())
-                    .setReason(Messages.CashAuditRecord.Reason.AllianceWithdraw);
+            CashAuditRecord.Builder auditRecord = new CashAuditRecord.Builder()
+                    .empire_id(mRequest.request_empire_id)
+                    .reason(CashAuditRecord.Reason.AllianceWithdraw);
             if (!new EmpireController(ctrl.getDB().getTransaction()).adjustBalance(
-                    mRequest.getRequestEmpireID(), -mRequest.getAmount(), audit_record_pb)) {
+                    mRequest.request_empire_id, -mRequest.amount, auditRecord)) {
                 // if the empire didn't have enough cash, then don't proceed...
                 return;
             }
 
             String sql = "UPDATE alliances SET bank_balance = bank_balance + ? WHERE id = ?";
             try (SqlStmt stmt = ctrl.getDB().prepare(sql)) {
-                stmt.setDouble(1, (double) mRequest.getAmount());
-                stmt.setInt(2, mRequest.getAllianceID());
+                stmt.setDouble(1, (double) mRequest.amount);
+                stmt.setInt(2, mRequest.alliance_id);
                 stmt.update();
             }
 
             sql = "INSERT INTO alliance_bank_balance_audit (alliance_id, alliance_request_id," +
                      " empire_id, date, amount_before, amount_after) VALUES (?, ?, ?, ?, ?, ?)";
             try (SqlStmt stmt = ctrl.getDB().prepare(sql)) {
-                stmt.setInt(1, mRequest.getAllianceID());
-                stmt.setInt(2, mRequest.getID());
-                stmt.setInt(3, mRequest.getRequestEmpireID());
+                stmt.setInt(1, mRequest.alliance_id);
+                stmt.setInt(2, mRequest.id);
+                stmt.setInt(3, mRequest.request_empire_id);
                 stmt.setDateTime(4, DateTime.now());
-                stmt.setDouble(5, mAlliance.getBankBalance());
-                stmt.setDouble(6, mAlliance.getBankBalance() + mRequest.getAmount());
+                stmt.setDouble(5, mAlliance.bank_balance);
+                stmt.setDouble(6, mAlliance.bank_balance + mRequest.amount);
                 stmt.update();
             }
         }
@@ -241,29 +262,30 @@ public abstract class AllianceRequestProcessor {
 
             String sql = "UPDATE alliances SET bank_balance = bank_balance - ? WHERE id = ? AND bank_balance > ?";
             try (SqlStmt stmt = ctrl.getDB().prepare(sql)) {
-                stmt.setDouble(1, (double) mRequest.getAmount());
-                stmt.setInt(2, mRequest.getAllianceID());
-                stmt.setDouble(3, (double) mRequest.getAmount());
+                stmt.setDouble(1, (double) mRequest.amount);
+                stmt.setInt(2, mRequest.alliance_id);
+                stmt.setDouble(3, (double) mRequest.amount);
                 if (stmt.update() == 0) {
                     // if we didn't update the row, it means there wasn't enough balance anyway...
                     return;
                 }
             }
 
-            Messages.CashAuditRecord.Builder audit_record_pb = Messages.CashAuditRecord.newBuilder()
-                    .setEmpireId(mRequest.getRequestEmpireID())
-                    .setReason(Messages.CashAuditRecord.Reason.AllianceWithdraw);
-            new EmpireController(ctrl.getDB().getTransaction()).adjustBalance(mRequest.getRequestEmpireID(), mRequest.getAmount(), audit_record_pb);
+            CashAuditRecord.Builder auditRecord = new CashAuditRecord.Builder()
+                    .empire_id(mRequest.request_empire_id)
+                    .reason(CashAuditRecord.Reason.AllianceWithdraw);
+            new EmpireController(ctrl.getDB().getTransaction()).adjustBalance(
+                    mRequest.request_empire_id, mRequest.amount, auditRecord);
 
             sql = "INSERT INTO alliance_bank_balance_audit (alliance_id, alliance_request_id," +
                      " empire_id, date, amount_before, amount_after) VALUES (?, ?, ?, ?, ?, ?)";
             try (SqlStmt stmt = ctrl.getDB().prepare(sql)) {
-                stmt.setInt(1, mRequest.getAllianceID());
-                stmt.setInt(2, mRequest.getID());
-                stmt.setInt(3, mRequest.getRequestEmpireID());
+                stmt.setInt(1, mRequest.alliance_id);
+                stmt.setInt(2, mRequest.id);
+                stmt.setInt(3, mRequest.request_empire_id);
                 stmt.setDateTime(4, DateTime.now());
-                stmt.setDouble(5, mAlliance.getBankBalance());
-                stmt.setDouble(6, mAlliance.getBankBalance() - mRequest.getAmount());
+                stmt.setDouble(5, mAlliance.bank_balance);
+                stmt.setDouble(6, mAlliance.bank_balance - mRequest.amount);
                 stmt.update();
             }
         }
@@ -278,27 +300,10 @@ public abstract class AllianceRequestProcessor {
         protected void onVotePassed(AllianceController ctrl) throws Exception {
             super.onVotePassed(ctrl);
 
-            // load up the image, make sure it's valid and reasonable dimensions
-            BufferedImage img = Imaging.getBufferedImage(mRequest.getPngImage());
-            if (img.getWidth() > 128 || img.getHeight() > 128) {
-                // if it's bigger than 128x128, we'll resize it here so that we don't ever store images
-                // that are too big to actually display.
-                BufferedImage after = new BufferedImage(128, 128, BufferedImage.TYPE_INT_ARGB);
-                AffineTransform at = new AffineTransform();
-                at.scale(128.0 / img.getWidth(), 128.0 / img.getHeight());
-                AffineTransformOp scaleOp = new AffineTransformOp(at, AffineTransformOp.TYPE_BILINEAR);
-                after = scaleOp.filter(img, after);
-                img = after;
-            }
-
-            ByteArrayOutputStream png = new ByteArrayOutputStream();
-            try {
-                Imaging.writeImage(img, png, ImageFormat.IMAGE_FORMAT_PNG, null);
-            } catch(Exception e) {
-                throw new RequestException(e);
-            }
-
-            new AllianceController().changeAllianceShield(mAlliance.getID(), png.toByteArray());
+            // Make sure the image is valid and reasonable dimensions
+            byte[] pngImage = ImageSizer.ensureMaxSize(mRequest.png_image.toByteArray(), 128, 128);
+            new AllianceController().changeAllianceShield(Integer.parseInt(mAlliance.key),
+                    pngImage);
         }
     }
 
@@ -313,8 +318,8 @@ public abstract class AllianceRequestProcessor {
 
             String sql = "UPDATE alliances SET name = ? WHERE id = ?";
             try (SqlStmt stmt = ctrl.getDB().prepare(sql)) {
-                stmt.setString(1, mRequest.getNewName());
-                stmt.setInt(2, mRequest.getAllianceID());
+                stmt.setString(1, mRequest.new_name);
+                stmt.setInt(2, mRequest.alliance_id);
                 stmt.update();
             }
         }
