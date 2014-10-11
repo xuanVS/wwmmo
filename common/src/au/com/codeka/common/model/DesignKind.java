@@ -1,5 +1,7 @@
 package au.com.codeka.common.model;
 
+import au.com.codeka.common.messages.BuildRequest;
+
 public enum DesignKind {
     BUILDING(1),
     SHIP(2);
@@ -22,5 +24,16 @@ public enum DesignKind {
         }
 
         return DesignKind.BUILDING;
+    }
+
+    public static DesignKind fromBuildKind(BuildRequest.BUILD_KIND buildKind) {
+        switch (buildKind) {
+        case BUILDING:
+            return DesignKind.BUILDING;
+        case SHIP:
+            return DesignKind.SHIP;
+        default:
+            throw new IllegalArgumentException("Unknown BuildKind: " + buildKind);
+        }
     }
 }

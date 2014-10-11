@@ -6,6 +6,9 @@ import java.util.List;
 import org.w3c.dom.Element;
 
 import au.com.codeka.common.XmlIterator;
+import au.com.codeka.common.messages.Building;
+import au.com.codeka.common.messages.Colony;
+import au.com.codeka.common.messages.Star;
 
 /**
  * This is the base "design" class which both \c ShipDesign and \c BuildingDesign inherit from.
@@ -213,6 +216,17 @@ public abstract class Design {
             for (BaseBuilding building : colony.getBuildings()) {
                 if (building.getDesignID().equals(mDesignID)) {
                     if (building.getLevel() >= mLevel) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        public boolean isMet(Star star, Colony colony) {
+            for (Building building : star.buildings) {
+                if (building.design_id.equals(mDesignID)) {
+                    if (building.level >= mLevel) {
                         return true;
                     }
                 }
