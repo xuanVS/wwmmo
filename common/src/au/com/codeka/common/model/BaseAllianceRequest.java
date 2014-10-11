@@ -10,6 +10,7 @@ import com.google.protobuf.ByteString;
 
 import au.com.codeka.common.protobuf.Messages;
 
+@Deprecated
 public abstract class BaseAllianceRequest {
     protected int mID;
     protected int mAllianceID;

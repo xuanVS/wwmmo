@@ -5,6 +5,7 @@ import com.google.gson.JsonParser;
 
 import au.com.codeka.common.protobuf.Messages;
 
+@Deprecated
 public class BaseFleetUpgrade {
     protected int mFleetID;
     protected String mUpgradeID;

@@ -5,6 +5,7 @@ import au.com.codeka.common.protobuf.Messages;
 /**
  * Represents a single building on a colony.
  */
+@Deprecated
 public class BaseBuilding {
     protected String mKey;
     protected String mColonyKey;

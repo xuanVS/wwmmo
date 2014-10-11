@@ -12,6 +12,7 @@ import au.com.codeka.common.protobuf.Messages;
 /**
  * A star is \i basically a container for planets. It shows up on the starfield list.
  */
+@Deprecated
 public abstract class BaseStar {
 
     public enum Type {

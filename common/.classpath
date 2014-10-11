@@ -7,5 +7,7 @@
 	<classpathentry kind="lib" path="libs/joda-time-2.1.jar"/>
 	<classpathentry kind="lib" path="libs/gson-2.1.jar"/>
 	<classpathentry kind="lib" path="libs/guava-18.0.jar"/>
+	<classpathentry kind="lib" path="libs/wire-runtime-1.5.3-SNAPSHOT.jar"/>
+	<classpathentry kind="lib" path="libs/okio-1.0.1.jar"/>
 	<classpathentry kind="output" path="bin"/>
 </classpath>

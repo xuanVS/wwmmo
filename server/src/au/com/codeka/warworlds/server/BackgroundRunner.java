@@ -11,7 +11,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
-
 /**
  * This class is similar to BackgroundRunner in the client, except that
  * it doesn't support a "complete" event. Basically just a convenient wrapper

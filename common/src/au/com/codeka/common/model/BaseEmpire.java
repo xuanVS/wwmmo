@@ -5,6 +5,7 @@ import org.joda.time.DateTimeZone;
 
 import au.com.codeka.common.protobuf.Messages;
 
+@Deprecated
 public abstract class BaseEmpire {
     protected String mKey;
     protected String mDisplayName;

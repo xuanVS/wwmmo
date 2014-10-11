@@ -41,5 +41,8 @@
 	<classpathentry kind="lib" path="libs/google-http-client-gson-1.19.0.jar"/>
 	<classpathentry kind="lib" path="libs/google-oauth-client-1.19.0.jar"/>
 	<classpathentry kind="lib" path="libs/google-api-services-oauth2-v2-rev80-1.19.0.jar"/>
+	<classpathentry kind="lib" path="libs/wire-gson-support-1.5.3-SNAPSHOT.jar"/>
+	<classpathentry kind="lib" path="libs/wire-runtime-1.5.3-SNAPSHOT.jar"/>
+	<classpathentry kind="lib" path="libs/okio-1.0.1.jar"/>
 	<classpathentry kind="output" path="bin"/>
 </classpath>

@@ -2,6 +2,7 @@ package au.com.codeka.common.model;
 
 import au.com.codeka.common.protobuf.Messages;
 
+@Deprecated
 public class BaseEmpireRank {
     protected String mEmpireKey;
     protected int mTotalStars;

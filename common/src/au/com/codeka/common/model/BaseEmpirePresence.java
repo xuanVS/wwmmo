@@ -11,6 +11,7 @@ import au.com.codeka.common.protobuf.Messages;
  * @author dean@codeka.com.au
  *
  */
+@Deprecated
 public abstract class BaseEmpirePresence {
     protected String mKey;
     protected String mEmpireKey;
