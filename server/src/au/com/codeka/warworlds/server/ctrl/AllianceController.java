@@ -5,20 +5,23 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 
+import okio.ByteString;
+
 import org.joda.time.DateTime;
 
-import au.com.codeka.common.model.BaseAllianceMember;
-import au.com.codeka.common.model.BaseAllianceRequest;
-import au.com.codeka.common.protobuf.Messages;
+import au.com.codeka.common.messages.Alliance;
+import au.com.codeka.common.messages.AllianceMember;
+import au.com.codeka.common.messages.AllianceRequest;
+import au.com.codeka.common.messages.AllianceRequestVote;
+import au.com.codeka.common.messages.CashAuditRecord;
+import au.com.codeka.common.messages.Empire;
+import au.com.codeka.common.messages.GenericError;
 import au.com.codeka.warworlds.server.RequestException;
 import au.com.codeka.warworlds.server.data.SqlResult;
 import au.com.codeka.warworlds.server.data.SqlStmt;
 import au.com.codeka.warworlds.server.data.Transaction;
-import au.com.codeka.warworlds.server.model.Alliance;
-import au.com.codeka.warworlds.server.model.AllianceMember;
-import au.com.codeka.warworlds.server.model.AllianceRequest;
-import au.com.codeka.warworlds.server.model.AllianceRequestVote;
-import au.com.codeka.warworlds.server.model.Empire;
+import au.com.codeka.warworlds.server.msghelpers.AllianceHelper;
+import au.com.codeka.warworlds.server.utils.ImageSizer;
 
 public class AllianceController {
     private DataBase db;
@@ -63,20 +66,19 @@ public class AllianceController {
     }
 
     public boolean isSameAlliance(Empire empire1, Empire empire2) {
-        if (empire1.getID() == empire2.getID()) {
+        if (empire1.key.equals(empire2.key)) {
             return true;
         }
 
-        if (empire1.getAlliance() == null || empire2.getAlliance() == null) {
+        if (empire1.alliance == null || empire2.alliance == null) {
             return false;
         }
 
-        return ((Alliance) empire1.getAlliance()).getID() ==
-                ((Alliance) empire2.getAlliance()).getID();
+        return empire1.alliance.key.equals(empire2.alliance.key);
     }
 
-    public List<AllianceRequest> getRequests(int allianceID, boolean includeWithdrawn, Integer cursor)
-            throws RequestException {
+    public List<AllianceRequest> getRequests(int allianceID, boolean includeWithdrawn,
+            Integer cursor) throws RequestException {
         try {
             return db.getRequests(allianceID, includeWithdrawn, cursor);
         } catch (Exception e) {
@@ -95,14 +97,21 @@ public class AllianceController {
     public int addRequest(AllianceRequest request) throws RequestException {
         try {
             // if there's a PNG image attached, make sure it's not too big
-            request.ensurePngImageMaxSize(128, 128);
+            byte[] pngImage = request.png_image.toByteArray();
+            byte[] resizedPngImage = ImageSizer.ensureMaxSize(pngImage, 128, 128);
+            if (pngImage != resizedPngImage) {
+                request = new AllianceRequest.Builder(request)
+                    .png_image(ByteString.of(resizedPngImage))
+                    .build();
+            }
 
+            // Save the request and update the id.
             int requestID = db.addRequest(request);
-            request.setID(requestID);
+            request = new AllianceRequest.Builder(request).id(requestID).build();
 
             // there's an implicit vote when you create a request (some requests require zero
             // votes, which means it passes straight away)
-            Alliance alliance = db.getAlliance(request.getAllianceID());
+            Alliance alliance = db.getAlliance(request.alliance_id);
             AllianceRequestProcessor processor = AllianceRequestProcessor.get(alliance, request);
             processor.onVote(this);
 
@@ -112,17 +121,31 @@ public class AllianceController {
         }
     }
 
+    public int getNumVotes(AllianceMember.Rank rank) {
+        switch(rank) {
+        case CAPTAIN:
+            return 10;
+        case LIEUTENANT:
+            return 5;
+        case MEMBER:
+        default:
+            return 1;
+        }
+    }
+
     public void vote(AllianceRequestVote vote) throws RequestException {
         try {
-            Alliance alliance = db.getAlliance(vote.getAllianceID());
+            Alliance alliance = db.getAlliance(vote.alliance_id);
             // normalize the number of votes they get by their rank in the alliance
-            for (BaseAllianceMember member : alliance.getMembers()) {
-                if (Integer.parseInt(member.getEmpireKey()) == vote.getEmpireID()) {
-                    int numVotes = member.getRank().getNumVotes();
-                    if (vote.getVotes() < 0) {
+            for (AllianceMember member : alliance.members) {
+                if (Integer.parseInt(member.empire_key) == vote.empire_id) {
+                    int numVotes = getNumVotes(member.rank);
+                    if (vote.votes < 0) {
                         numVotes *= -1;
                     }
-                    vote.setVotes(numVotes);
+                    if (vote.votes != numVotes) {
+                        vote = new AllianceRequestVote.Builder(vote).votes(numVotes).build();
+                    }
                     break;
                 }
             }
@@ -131,7 +154,7 @@ public class AllianceController {
 
             // depending on the kind of request this is, check whether this is enough votes to
             // complete the voting or not
-            AllianceRequest request = db.getRequest(vote.getAllianceRequestID());
+            AllianceRequest request = db.getRequest(vote.alliance_request_id);
             AllianceRequestProcessor processor = AllianceRequestProcessor.get(alliance, request);
             processor.onVote(this);
         } catch(Exception e) {
@@ -139,17 +162,18 @@ public class AllianceController {
         }
     }
 
-    public void createAlliance(Alliance alliance, Empire ownerEmpire) throws RequestException {
-        Messages.CashAuditRecord.Builder audit_record_pb = Messages.CashAuditRecord.newBuilder()
-                .setEmpireId(ownerEmpire.getID())
-                .setAllianceName(alliance.getName());
-        if (!new EmpireController().withdrawCash(ownerEmpire.getID(), 250000, audit_record_pb)) {
-            throw new RequestException(400, Messages.GenericError.ErrorCode.InsufficientCash,
-                                       "Insufficient cash to create a new alliance.");
+    public int createAlliance(Alliance alliance, Empire ownerEmpire) throws RequestException {
+        CashAuditRecord.Builder audit_record_pb = new CashAuditRecord.Builder()
+                .empire_id(Integer.parseInt(ownerEmpire.key))
+                .alliance_name(alliance.name);
+        if (!new EmpireController().withdrawCash(Integer.parseInt(ownerEmpire.key),
+                250000, audit_record_pb)) {
+            throw new RequestException(400, GenericError.ErrorCode.InsufficientCash,
+                    "Insufficient cash to create a new alliance.");
         }
 
         try {
-            db.createAlliance(alliance, ownerEmpire.getID());
+            return db.createAlliance(alliance, Integer.parseInt(ownerEmpire.key));
         } catch (Exception e) {
             throw new RequestException(e);
         }
@@ -233,7 +257,7 @@ public class AllianceController {
         public List<Alliance> getAlliances() throws Exception {
             String sql = "SELECT alliances.*," +
                                " (SELECT COUNT(*) FROM empires WHERE empires.alliance_id = alliances.id) AS num_empires," +
-                               " (SELECT COUNT(*) FROM alliance_requests WHERE alliance_id = alliances.id AND state = " + AllianceRequest.RequestState.PENDING.getNumber() + ") AS num_pending_requests" +
+                               " (SELECT COUNT(*) FROM alliance_requests WHERE alliance_id = alliances.id AND state = " + AllianceRequest.RequestState.PENDING.getValue() + ") AS num_pending_requests" +
                         " FROM alliances" +
                         " ORDER BY name ASC";
             try (SqlStmt stmt = prepare(sql)) {
@@ -241,7 +265,7 @@ public class AllianceController {
 
                 ArrayList<Alliance> alliances = new ArrayList<Alliance>();
                 while (res.next()) {
-                    alliances.add(new Alliance(null, res));
+                    alliances.add(AllianceHelper.loadAlliance(null, res));
                 }
                 return alliances;
             }
@@ -250,50 +274,53 @@ public class AllianceController {
         public Alliance getAlliance(int allianceID) throws Exception {
             Alliance alliance = null;
             String sql = "SELECT *, 0 AS num_empires," +
-                               " (SELECT COUNT(*) FROM alliance_requests WHERE alliance_id = alliances.id AND state = " + AllianceRequest.RequestState.PENDING.getNumber() + ") AS num_pending_requests" +
+                               " (SELECT COUNT(*) FROM alliance_requests WHERE alliance_id = alliances.id AND state = " + AllianceRequest.RequestState.PENDING.getValue() + ") AS num_pending_requests" +
                         " FROM alliances WHERE id = ?";
             try (SqlStmt stmt = prepare(sql)) {
                 stmt.setInt(1, allianceID);
                 SqlResult res = stmt.select();
 
                 if (res.next()) {
-                    alliance = new Alliance(null, res);
+
+                    sql = "SELECT id, alliance_id, alliance_rank" +
+                          " FROM empires WHERE alliance_id = ?";
+                    try (SqlStmt memberStmt = prepare(sql)) {
+                        stmt.setInt(1, allianceID);
+                        SqlResult memberRes = memberStmt.select();
+                        while (res.next()) {
+                            alliance = AllianceHelper.loadAlliance(null, res, memberRes);
+                        }
+                    }
                 }
             }
             if (alliance == null) {
                 throw new RequestException(404);
             }
 
-            sql = "SELECT id, alliance_id, alliance_rank FROM empires WHERE alliance_id = ?";
-            try (SqlStmt stmt = prepare(sql)) {
-                stmt.setInt(1, allianceID);
-                SqlResult res = stmt.select();
-                while (res.next()) {
-                    AllianceMember member = new AllianceMember(res);
-                    alliance.getMembers().add(member);
-                }
-            }
-
             return alliance;
         }
 
-        public void createAlliance(Alliance alliance, int creatorEmpireID) throws Exception {
+        public int createAlliance(Alliance alliance, int creatorEmpireID) throws Exception {
+            int allianceID;
+
             String sql = "INSERT INTO alliances (name, creator_empire_id, created_date," +
                               " bank_balance, image_updated_date) VALUES (?, ?, ?, 0, NOW())";
             try (SqlStmt stmt = prepare(sql, Statement.RETURN_GENERATED_KEYS)) {
-                stmt.setString(1, alliance.getName());
+                stmt.setString(1, alliance.name);
                 stmt.setInt(2, creatorEmpireID);
                 stmt.setDateTime(3, DateTime.now());
                 stmt.update();
-                alliance.setID(stmt.getAutoGeneratedID());
+                allianceID = stmt.getAutoGeneratedID();
             }
 
             sql = "UPDATE empires SET alliance_id = ? WHERE id = ?";
             try (SqlStmt stmt = prepare(sql)) {
-                stmt.setInt(1, alliance.getID());
+                stmt.setInt(1, allianceID);
                 stmt.setInt(2, creatorEmpireID);
                 stmt.update();
             }
+
+            return allianceID;
         }
 
         public int addRequest(AllianceRequest request) throws Exception {
@@ -303,11 +330,11 @@ public class AllianceController {
                         " WHERE request_empire_id = ?" +
                           " AND alliance_id = ?" +
                           " AND request_type = ?" +
-                          " AND state = " + BaseAllianceRequest.RequestState.PENDING.getNumber();
+                          " AND state = " + AllianceRequest.RequestState.PENDING.getValue();
             try (SqlStmt stmt = prepare(sql)) {
-                stmt.setInt(1, request.getRequestEmpireID());
-                stmt.setInt(2, request.getAllianceID());
-                stmt.setInt(3, request.getRequestType().getNumber());
+                stmt.setInt(1, request.request_empire_id);
+                stmt.setInt(2, request.alliance_id);
+                stmt.setInt(3, request.request_type.getValue());
                 stmt.update();
             }
 
@@ -316,25 +343,17 @@ public class AllianceController {
                    " votes, target_empire_id, amount, png_image, new_name)" +
                  " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
             try (SqlStmt stmt = prepare(sql, Statement.RETURN_GENERATED_KEYS)) {
-                stmt.setInt(1, request.getAllianceID());
-                stmt.setInt(2, request.getRequestEmpireID());
+                stmt.setInt(1, request.alliance_id);
+                stmt.setInt(2, request.request_empire_id);
                 stmt.setDateTime(3, DateTime.now());
-                stmt.setInt(4, request.getRequestType().getNumber());
-                stmt.setString(5, request.getMessage());
-                stmt.setInt(6, BaseAllianceRequest.RequestState.PENDING.getNumber());
+                stmt.setInt(4, request.request_type.getValue());
+                stmt.setString(5, request.message);
+                stmt.setInt(6, AllianceRequest.RequestState.PENDING.getValue());
                 stmt.setInt(7, 0);
-                if (request.getTargetEmpireID() != null) {
-                    stmt.setInt(8, request.getTargetEmpireID());
-                } else {
-                    stmt.setNull(8);
-                }
-                if (request.getAmount() != null) {
-                    stmt.setDouble(9, request.getAmount());
-                } else {
-                    stmt.setNull(9);
-                }
-                stmt.setBytes(10, request.getPngImage());
-                stmt.setString(11, request.getNewName());
+                stmt.setInt(8, request.target_empire_id);
+                stmt.setDouble(9, request.amount);
+                stmt.setBytes(10, request.png_image.toByteArray());
+                stmt.setString(11, request.new_name);
                 stmt.update();
 
                 return stmt.getAutoGeneratedID();
@@ -358,7 +377,7 @@ public class AllianceController {
             String sql = "SELECT * FROM alliance_requests" +
                         " WHERE alliance_id = ?";
             if (!includeWithdrawn) {
-                sql += " AND state != " + AllianceRequest.RequestState.WITHDRAWN.getNumber();
+                sql += " AND state != " + AllianceRequest.RequestState.WITHDRAWN.getValue();
             }
             if (cursor != null) {
                 sql += " AND id < ?";
@@ -372,11 +391,11 @@ public class AllianceController {
                 SqlResult res = stmt.select();
 
                 while (res.next()) {
-                    AllianceRequest request = new AllianceRequest(res);
+                    AllianceRequest request = AllianceHelper.loadAllianceRequest(res);
                     requests.add(request);
 
-                    if (!requestIDs.contains(request.getID())) {
-                        requestIDs.add(request.getID());
+                    if (!requestIDs.contains(request.id)) {
+                        requestIDs.add(request.id);
                     }
                 }
             }
@@ -387,10 +406,10 @@ public class AllianceController {
                 try (SqlStmt stmt = prepare(sql)) {
                     SqlResult res = stmt.select();
                     while (res.next()) {
-                        AllianceRequestVote vote = new AllianceRequestVote(res);
-                        for (BaseAllianceRequest request : requests) {
-                            if (request.getID() == vote.getAllianceRequestID()) {
-                                request.getVotes().add(vote);
+                        AllianceRequestVote vote = AllianceHelper.loadAllianceRequestVote(res);
+                        for (AllianceRequest request : requests) {
+                            if (request.id == vote.alliance_request_id) {
+                                request.vote.add(vote);
                             }
                         }
                     }
@@ -407,7 +426,7 @@ public class AllianceController {
                 SqlResult res = stmt.select();
 
                 if (res.next()) {
-                    return new AllianceRequest(res);
+                    return AllianceHelper.loadAllianceRequest(res);
                 }
             }
 
@@ -420,15 +439,15 @@ public class AllianceController {
                          "WHERE alliance_request_id = ? AND empire_id = ?";
             Long id = null;
             try (SqlStmt stmt = prepare(sql)) {
-                stmt.setInt(1, vote.getAllianceRequestID());
-                stmt.setInt(2, vote.getEmpireID());
+                stmt.setInt(1, vote.alliance_request_id);
+                stmt.setInt(2, vote.empire_id);
                 id = stmt.selectFirstValue(Long.class);
             }
 
             if (id != null) {
                 sql = "UPDATE alliance_request_votes SET votes = ? WHERE id = ?";
                 try (SqlStmt stmt = prepare(sql)) {
-                    stmt.setInt(1, vote.getVotes());
+                    stmt.setInt(1, vote.votes);
                     stmt.setInt(2, (int) (long) id);
                     stmt.update();
                 }
@@ -436,10 +455,10 @@ public class AllianceController {
                 sql = "INSERT INTO alliance_request_votes (alliance_id, alliance_request_id," +
                          " empire_id, votes, date) VALUES (?, ?, ?, ?, NOW())";
                 try (SqlStmt stmt = prepare(sql)) {
-                    stmt.setInt(1, vote.getAllianceID());
-                    stmt.setInt(2, vote.getAllianceRequestID());
-                    stmt.setInt(3, vote.getEmpireID());
-                    stmt.setInt(4, vote.getVotes());
+                    stmt.setInt(1, vote.alliance_id);
+                    stmt.setInt(2, vote.alliance_request_id);
+                    stmt.setInt(3, vote.empire_id);
+                    stmt.setInt(4, vote.votes);
                     stmt.update();
                 }
             }
@@ -449,7 +468,7 @@ public class AllianceController {
                         "SELECT SUM(votes) FROM alliance_request_votes WHERE alliance_request_id = alliance_requests.id" +
                     ") WHERE id = ?";
             try (SqlStmt stmt = prepare(sql)) {
-                stmt.setInt(1, vote.getAllianceRequestID());
+                stmt.setInt(1, vote.alliance_request_id);
                 stmt.update();
             }
         }

@@ -11,12 +11,10 @@ import org.apache.commons.imaging.ImageFormat;
 import org.apache.commons.imaging.Imaging;
 import org.joda.time.DateTime;
 
-import au.com.codeka.common.protobuf.Messages;
+import au.com.codeka.common.messages.Alliance;
+import au.com.codeka.common.messages.AllianceRequest;
 import au.com.codeka.warworlds.server.RequestException;
 import au.com.codeka.warworlds.server.data.SqlStmt;
-import au.com.codeka.warworlds.server.model.Alliance;
-import au.com.codeka.warworlds.server.model.AllianceMember;
-import au.com.codeka.warworlds.server.model.AllianceRequest;
 
 
 /**

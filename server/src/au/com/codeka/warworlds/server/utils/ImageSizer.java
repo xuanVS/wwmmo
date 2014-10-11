@@ -18,10 +18,14 @@ public class ImageSizer {
     public static byte[] ensureMaxSize(byte[] pngImage, int maxWidth, int maxHeight) {
         try {
             BufferedImage image = Imaging.getBufferedImage(pngImage);
-            image = ensureMaxSize(image, maxWidth, maxHeight);
-    
+            BufferedImage resized = ensureMaxSize(image, maxWidth, maxHeight);
+            if (image == resized) {
+                // it's already an OK size
+                return pngImage;
+            }
+
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            ImageIO.write(image, "png", baos);
+            ImageIO.write(resized, "png", baos);
             return baos.toByteArray();
         } catch (IOException | ImageReadException e) {
             return pngImage; // no ideal, but shouldn't happen
