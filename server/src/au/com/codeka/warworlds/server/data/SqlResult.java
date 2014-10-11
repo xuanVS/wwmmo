@@ -4,6 +4,8 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 
+import okio.ByteString;
+
 import org.joda.time.DateTime;
 import org.joda.time.DateTimeZone;
 
@@ -119,6 +121,22 @@ public class SqlResult {
         return value;
     }
 
+    public ByteString getByteString(int position) throws SQLException {
+        byte[] value = mResultSet.getBytes(position);
+        if (mResultSet.wasNull()) {
+            return null;
+        }
+        return ByteString.of(value);
+    }
+
+    public ByteString getByteString(String columnName) throws SQLException {
+        byte[] value = mResultSet.getBytes(columnName);
+        if (mResultSet.wasNull()) {
+            return null;
+        }
+        return ByteString.of(value);
+    }
+
     public DateTime getDateTime(int position) throws SQLException {
         Timestamp ts = mResultSet.getTimestamp(position);
         if (mResultSet.wasNull()) {
@@ -133,5 +151,17 @@ public class SqlResult {
             return null;
         }
         return new DateTime(ts.getTime(), DateTimeZone.UTC);
+    }
+
+    /** Returns true if the result has a column with the given name, false otherwise. */
+    public Boolean hasColumn(String columnName) {
+        try {
+            mResultSet.findColumn(columnName);
+            return true;
+        } catch (SQLException e) {
+            // it's kind of dumb that they don't give us access to findColumnIndex() which doesn't
+            // throw when it can't find it...
+            return false;
+        }
     }
 }

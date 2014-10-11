@@ -10,18 +10,12 @@ import java.util.TreeMap;
 
 import org.joda.time.DateTime;
 
-import au.com.codeka.common.model.BaseColony;
-import au.com.codeka.common.protobuf.Messages;
+import au.com.codeka.common.messages.CashAuditRecord;
 import au.com.codeka.warworlds.server.RequestException;
 import au.com.codeka.warworlds.server.data.DB;
 import au.com.codeka.warworlds.server.data.SqlResult;
 import au.com.codeka.warworlds.server.data.SqlStmt;
 import au.com.codeka.warworlds.server.data.Transaction;
-import au.com.codeka.warworlds.server.model.AllianceRequest;
-import au.com.codeka.warworlds.server.model.Colony;
-import au.com.codeka.warworlds.server.model.Empire;
-import au.com.codeka.warworlds.server.model.Planet;
-import au.com.codeka.warworlds.server.model.Star;
 
 public class EmpireController {
     private DataBase db;
@@ -153,15 +147,18 @@ public class EmpireController {
         return null;
     }
 
-    public boolean withdrawCash(int empireId, float amount, Messages.CashAuditRecord.Builder audit_record_pb) throws RequestException {
-        return adjustBalance(empireId, -amount, audit_record_pb);
+    public boolean withdrawCash(int empireId, float amount, CashAuditRecord.Builder auditRecord)
+            throws RequestException {
+        return adjustBalance(empireId, -amount, auditRecord);
     }
 
-    public void depositCash(int empireId, float amount, Messages.CashAuditRecord.Builder audit_record_pb) throws RequestException {
-        adjustBalance(empireId, amount, audit_record_pb);
+    public void depositCash(int empireId, float amount, CashAuditRecord.Builder auditRecord)
+            throws RequestException {
+        adjustBalance(empireId, amount, auditRecord);
     }
 
-    public boolean adjustBalance(int empireId, float amount, Messages.CashAuditRecord.Builder audit_record_pb) throws RequestException {
+    public boolean adjustBalance(int empireId, float amount, CashAuditRecord.Builder auditRecord)
+            throws RequestException {
         if (Float.isNaN(amount)) {
             throw new RequestException(500, "Amount is NaN!");
         }
@@ -187,9 +184,9 @@ public class EmpireController {
                 return false;
             }
 
-            audit_record_pb.setBeforeCash((float) cashBefore);
-            audit_record_pb.setAfterCash((float) (cashBefore + amount));
-            audit_record_pb.setTime(DateTime.now().getMillis() / 1000);
+            auditRecord.before_cash((float) cashBefore);
+            c.after_cash((float) (cashBefore + amount));
+            auditRecord.time(DateTime.now().getMillis() / 1000);
 
             stmt = t.prepare("UPDATE empires SET cash = cash + ? WHERE id = ?");
             stmt.setDouble(1, amount);
@@ -202,7 +199,7 @@ public class EmpireController {
             stmt.setDouble(2, cashBefore);
             stmt.setDouble(3, cashBefore - amount);
             stmt.setDateTime(4, DateTime.now());
-            stmt.setBytes(5, audit_record_pb.build().toByteArray());
+            stmt.setBytes(5, auditRecord.build().toByteArray());
             stmt.update();
 
             if (!existingTransaction) {
