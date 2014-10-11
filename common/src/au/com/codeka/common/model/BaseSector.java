@@ -9,6 +9,7 @@ import au.com.codeka.common.protobuf.Messages;
 /**
  * A \c Sector represents a "section" of space, with corresponding stars, planets and so on.
  */
+@Deprecated
 public abstract class BaseSector {
     protected long mX;
     protected long mY;

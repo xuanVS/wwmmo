@@ -5,6 +5,7 @@ import org.joda.time.DateTimeZone;
 
 import au.com.codeka.common.protobuf.Messages;
 
+@Deprecated
 public class BaseAllianceMember {
     protected String mKey;
     protected String mAllianceKey;

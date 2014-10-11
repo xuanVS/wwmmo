@@ -54,5 +54,8 @@
 	<classpathentry kind="lib" path="libs/gson-2.1.jar"/>
 	<classpathentry kind="lib" path="libs/postgresql-9.3-1101.jdbc41.jar"/>
 	<classpathentry kind="lib" path="libs/proguard.jar"/>
+	<classpathentry kind="lib" path="libs/wire-gson-support-1.5.3-SNAPSHOT.jar"/>
+	<classpathentry kind="lib" path="libs/wire-runtime-1.5.3-SNAPSHOT.jar"/>
+	<classpathentry kind="lib" path="libs/okio-1.0.1.jar"/>
 	<classpathentry kind="output" path="bin"/>
 </classpath>

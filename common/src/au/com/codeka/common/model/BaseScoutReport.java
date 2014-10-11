@@ -8,6 +8,7 @@ import au.com.codeka.common.protobuf.Messages;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
 
+@Deprecated
 public abstract class BaseScoutReport {
     protected String mKey;
     protected DateTime mReportDate;

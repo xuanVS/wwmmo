@@ -5,6 +5,7 @@ import java.util.List;
 
 import au.com.codeka.common.protobuf.Messages;
 
+@Deprecated
 public abstract class BaseChatConversation {
     protected int mID;
     protected List<BaseChatConversationParticipant> mParticipants;

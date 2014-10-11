@@ -8,6 +8,7 @@ import org.joda.time.DateTimeZone;
 
 import au.com.codeka.common.protobuf.Messages;
 
+@Deprecated
 public class BaseCombatReport {
     protected String mKey;
     protected String mStarKey;

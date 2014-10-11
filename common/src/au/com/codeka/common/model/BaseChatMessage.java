@@ -6,6 +6,7 @@ import org.joda.time.DateTimeZone;
 
 import au.com.codeka.common.protobuf.Messages;
 
+@Deprecated
 public class BaseChatMessage {
     protected int mID;
     protected String mMessage;

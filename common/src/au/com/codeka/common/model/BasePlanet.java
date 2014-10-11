@@ -2,7 +2,7 @@ package au.com.codeka.common.model;
 
 import au.com.codeka.common.protobuf.Messages;
 
-
+@Deprecated
 public class BasePlanet {
     protected static PlanetType[] sPlanetTypes = {
         new PlanetType.Builder().setIndex(0)

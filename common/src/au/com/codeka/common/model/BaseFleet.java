@@ -8,6 +8,7 @@ import org.joda.time.Seconds;
 
 import au.com.codeka.common.protobuf.Messages;
 
+@Deprecated
 public abstract class BaseFleet {
     protected String mKey;
     protected String mEmpireKey;

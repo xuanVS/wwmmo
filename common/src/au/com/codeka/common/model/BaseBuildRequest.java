@@ -10,6 +10,7 @@ import au.com.codeka.common.protobuf.Messages;
 /**
  * Represents an in-progress build order.
  */
+@Deprecated
 public abstract class BaseBuildRequest  {
     protected String mKey;
     protected DesignKind mDesignKind;

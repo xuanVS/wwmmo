@@ -19,6 +19,7 @@ import au.com.codeka.common.XmlIterator;
 /**
  * This is the base "manager" class that manages designs for ships and buildings.
  */
+@Deprecated
 public abstract class BaseDesignManager {
     private static final Log log = new Log("BaseDesignManager");
     public static BaseDesignManager i;
