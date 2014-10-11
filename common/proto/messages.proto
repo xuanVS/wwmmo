@@ -902,6 +902,17 @@ message Building
 
 
 //
+// A Building plus a location within the starfield map.
+//
+message BuildingPosition {
+    optional Building building = 1;
+    optional int64 sector_x = 2;
+    optional int64 sector_y = 3;
+    optional int32 offset_x = 4;
+    optional int32 offset_y = 5;
+}
+
+//
 // An upgrade to a fleet
 //
 message FleetUpgrade
