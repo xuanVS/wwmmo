@@ -16,37 +16,17 @@ import org.joda.time.Seconds;
 
 import au.com.codeka.common.Log;
 import au.com.codeka.common.Vector2;
-import au.com.codeka.common.model.BaseBuildRequest;
-import au.com.codeka.common.model.BaseColony;
-import au.com.codeka.common.model.BaseEmpirePresence;
-import au.com.codeka.common.model.BaseFleet;
-import au.com.codeka.common.model.BaseFleetUpgrade;
-import au.com.codeka.common.model.BasePlanet;
-import au.com.codeka.common.model.BaseScoutReport;
+import au.com.codeka.common.messages.Star;
 import au.com.codeka.common.model.BuildingDesign;
 import au.com.codeka.common.model.BuildingEffect;
 import au.com.codeka.common.model.Design;
 import au.com.codeka.common.model.Simulation;
-import au.com.codeka.common.protobuf.Messages;
 import au.com.codeka.warworlds.server.EventProcessor;
 import au.com.codeka.warworlds.server.RequestException;
 import au.com.codeka.warworlds.server.data.SqlResult;
 import au.com.codeka.warworlds.server.data.SqlStmt;
 import au.com.codeka.warworlds.server.data.Transaction;
 import au.com.codeka.warworlds.server.designeffects.RadarBuildingEffect;
-import au.com.codeka.warworlds.server.model.Alliance;
-import au.com.codeka.warworlds.server.model.BuildRequest;
-import au.com.codeka.warworlds.server.model.Building;
-import au.com.codeka.warworlds.server.model.BuildingPosition;
-import au.com.codeka.warworlds.server.model.Colony;
-import au.com.codeka.warworlds.server.model.CombatReport;
-import au.com.codeka.warworlds.server.model.EmpirePresence;
-import au.com.codeka.warworlds.server.model.Fleet;
-import au.com.codeka.warworlds.server.model.FleetUpgrade;
-import au.com.codeka.warworlds.server.model.Planet;
-import au.com.codeka.warworlds.server.model.ScoutReport;
-import au.com.codeka.warworlds.server.model.Sector;
-import au.com.codeka.warworlds.server.model.Star;
 
 public class StarController {
     private static final Log log = new Log("StarController");

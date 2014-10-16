@@ -1,4 +1,4 @@
-package au.com.codeka.common.model;
+package au.com.codeka.common.simulation;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -12,6 +12,12 @@ import org.joda.time.Interval;
 import org.joda.time.Seconds;
 
 import au.com.codeka.common.Log;
+import au.com.codeka.common.messages.Colony;
+import au.com.codeka.common.messages.Fleet;
+import au.com.codeka.common.messages.Planet;
+import au.com.codeka.common.messages.Star;
+import au.com.codeka.common.model.Design;
+import au.com.codeka.common.model.ShipDesign;
 
 /**
  * This class is used to simulate a {@link Star}.
@@ -54,25 +60,18 @@ public class Simulation {
     }
 
     /**
-     * Simulate the given star, and make sure it's "current".
-     * @param star
+     * Return a new instance of {@link Star} that's been simulated up to "now".
      */
-    public void simulate(BaseStar star) {
+    public Star simulate(Star star) {
         sNumSimulations ++;
-        log(String.format("Begin simulation for '%s'", star.getName()));
+        log(String.format("Begin simulation for '%s'", star.name));
+        SimulationStatus status = new SimulationStatus(star, logHandler);
 
-        HashSet<String> empireKeys = new HashSet<String>();
-        for (BaseColony colony : star.getColonies()) {
-            if (!empireKeys.contains(colony.getEmpireKey())) {
-                empireKeys.add(colony.getEmpireKey());
-            }
-        }
-
-        // figure out the start time, which is the oldest last_simulation time
-        DateTime startTime = getSimulateStartTime(star);
+        Set<String> empireKeys = status.getEmpires();
+        DateTime startTime = status.getSimulateStartTime();
         if (startTime == null) {
             // Nothing worth simulating...
-            return;
+            return new Star.Builder(star).build();
         }
 
         DateTime endTime = now;
@@ -88,13 +87,13 @@ public class Simulation {
         // growth and such, just the end time of builds. We'll also record the time that the
         // population drops below a certain threshold so that we can warn the player.
         DateTime predictionTime = endTime.plusHours(24);
-        BaseStar predictionStar = null;
+        Star predictionStar = null;
 
         while (true) {
             Duration dt = Duration.standardMinutes(15);
             DateTime stepEndTime = startTime.plus(dt);
             if (stepEndTime.compareTo(endTime) < 0) {
-                simulateStepForAllEmpires(dt, startTime, star, empireKeys);
+                simulateStepForAllEmpires(dt, startTime, status, empireKeys);
                 startTime = stepEndTime;
             } else if (predict && stepEndTime.compareTo(predictionTime) < 0) {
                 if (predictionStar == null) {
@@ -157,147 +156,76 @@ public class Simulation {
         sNumSimulations --;
     }
 
-    private DateTime getSimulateStartTime(BaseStar star) {
-        DateTime lastSimulation = star.getLastSimulation();
-        if (lastSimulation == null) {
-            for (BaseFleet fleet : star.getFleets()) {
-                if (lastSimulation == null || fleet.getStateStartTime().compareTo(lastSimulation) < 0) {
-                    lastSimulation = fleet.getStateStartTime();
-                }
-            }
-        }
 
-        // if there's only native colonies, don't bother simulating from more than
-        // 24 hours ago. The native colonies will generally be in a steady state
-        DateTime oneDayAgo = DateTime.now().minusHours(24);
-        if (lastSimulation != null && lastSimulation.isBefore(oneDayAgo)) {
-            log("Last simulation more than on day ago, checking whether there are any non-native colonies.");
-            boolean onlyNativeColonies = true;
-            for (BaseColony baseColony : star.getColonies()) {
-                if (baseColony.getEmpireKey() != null) {
-                    onlyNativeColonies = false;
-                }
-            }
-            for (BaseFleet baseFleet : star.getFleets()) {
-                if (baseFleet.getEmpireKey() != null) {
-                    onlyNativeColonies = false;
-                }
-            }
-            if (onlyNativeColonies) {
-                log("No non-native colonies detected, simulating only 24 hours in the past.");
-                lastSimulation = oneDayAgo;
-            }
-        }
-
-        return lastSimulation;
-    }
-
-    private void simulateStepForAllEmpires(Duration dt, DateTime now, BaseStar star, Set<String> empireKeys) {
+    private void simulateStepForAllEmpires(Duration dt, DateTime now, SimulationStatus status,
+            Set<String> empireKeys) {
         log(String.format("- Step [dt=%.2f hrs] [now=%s]", (float)(dt.toStandardSeconds().getSeconds()) / 3600.0f, now));
         for (String empireKey : empireKeys) {
             log(String.format("-- Empire [%s]", empireKey == null ? "Native" : empireKey));
-            simulateStep(dt, now, star, empireKey);
+            simulateStep(dt, now, status, empireKey);
         }
 
         // Don't forget to simulate combat for this step as well (what to do if combat continues
         // after the prediction phase?)
-        simulateCombat(star, now, dt);
+        simulateCombat(status, now, dt);
     }
 
-    private static boolean equalEmpireKey(String keyOne, String keyTwo) {
-        if (keyOne == null && keyTwo == null) {
-            return true;
-        }
-        if (keyOne == null || keyTwo == null) {
-            return false;
-        }
-        return keyOne.equals(keyTwo);
-    }
-
-    private void simulateStep(Duration dt, DateTime now, BaseStar star, String empireKey) {
-        float totalGoods = 50.0f;
-        float totalMinerals = 50.0f;
-        float totalPopulation = 0.0f;
-        float maxGoods = 50.0f;
-        float maxMinerals = 50.0f;
-        float totalTaxPerHour = 0.0f;
-
-        BaseEmpirePresence empire = null;
-        for (BaseEmpirePresence e : star.getEmpires()) {
-            if (!equalEmpireKey(e.getEmpireKey(), empireKey)) {
-                continue;
-            }
-            empire = e;
-            totalGoods = empire.getTotalGoods();
-            totalMinerals = empire.getTotalMinerals();
-            maxGoods = empire.getMaxGoods();
-            maxMinerals = empire.getMaxMinerals();
-        }
+    private void simulateStep(Duration dt, DateTime now, SimulationStatus status,
+            String empireKey) {
+        EmpireStatus empireStatus = status.getEmpire(empireKey);
 
         float dtInHours = ((float) dt.getMillis()) / (1000.0f * 3600.0f);
-        float goodsDeltaPerHour = 0.0f;
-        float mineralsDeltaPerHour = 0.0f;
 
-        for (BaseColony colony : star.getColonies()) {
-            if (!equalEmpireKey(colony.getEmpireKey(), empireKey)) {
-                continue;
-            }
-
+        for (ColonyStatus colonyStatus : empireStatus.colonies) {
             log(String.format("--- Colony [planetIndex=%d] [population=%.2f]",
-                    colony.getPlanetIndex(), colony.getPopulation()));
-            BasePlanet planet = star.getPlanets()[colony.getPlanetIndex() - 1];
+                    colonyStatus.getPlanetIndex(), colonyStatus.population));
+            Planet planet = colonyStatus.getPlanet();
 
             // calculate the output from farming this turn and add it to the star global
-            float goods = colony.getPopulation() * colony.getFarmingFocus() *
-                          (planet.getFarmingCongeniality() / 100.0f);
-            colony.setGoodsDelta(goods);
-            totalGoods += goods * dtInHours;
-            goodsDeltaPerHour += goods;
-            log(String.format("    Goods: [delta=%.2f / hr] [this turn=%.2f]", goods, goods * dtInHours));
+            float goods = colonyStatus.population * colonyStatus.getFarmingFocus()
+                    * (planet.farming_congeniality / 100.0f);
+            colonyStatus.deltaGoods = goods;
+            empireStatus.totalGoods += goods * dtInHours;
+            empireStatus.deltaGoodsPerHour += goods;
+            log(String.format("    Goods: [delta=%.2f / hr] [this turn=%.2f]", goods,
+                    goods * dtInHours));
 
             // calculate the output from mining this turn and add it to the star global
-            float minerals = colony.getPopulation() * colony.getMiningFocus() *
-                             (planet.getMiningCongeniality() / 100.0f);
-            colony.setMineralsDelta(minerals);
-            totalMinerals += minerals * dtInHours;
-            mineralsDeltaPerHour += minerals;
-            log(String.format("    Minerals: [delta=%.2f / hr] [this turn=%.2f]", goods, goods * dtInHours));
+            float minerals = colonyStatus.population * colonyStatus.getMiningFocus()
+                    * (planet.mining_congeniality / 100.0f);
+            colonyStatus.deltaMinerals = minerals;
+            empireStatus.totalMinerals += minerals * dtInHours;
+            empireStatus.deltaMineralsPerHour += minerals;
+            log(String.format("    Minerals: [delta=%.2f / hr] [this turn=%.2f]", goods,
+                    goods * dtInHours));
 
-            totalPopulation += colony.getPopulation();
+            empireStatus.totalPopulation += colonyStatus.population;
 
             // work out the amount of taxes this colony has generated in the last turn
             float taxPerPopulationPerHour = 0.012f;
-            float taxPerHour = taxPerPopulationPerHour * colony.getPopulation();
+            float taxPerHour = taxPerPopulationPerHour * colonyStatus.population;
             float taxThisTurn = taxPerHour * dtInHours;
-            log(String.format("    Taxes %.2f + %.2f = %.2f uncollected", colony.getUncollectedTaxes(), taxThisTurn, colony.getUncollectedTaxes() + taxThisTurn));
-            totalTaxPerHour += taxPerHour;
-            colony.setUncollectedTaxes(colony.getUncollectedTaxes() + taxThisTurn);
+            log(String.format("    Taxes %.2f + %.2f = %.2f uncollected",
+                    colonyStatus.uncollectedTaxes, taxThisTurn,
+                    colonyStatus.uncollectedTaxes + taxThisTurn));
+            empireStatus.totalTaxPerHour += taxPerHour;
+            colonyStatus.uncollectedTaxes = colonyStatus.uncollectedTaxes + taxThisTurn;
         }
 
-        // A second loop though the colonies, once the goods/minerals have been calculated. This way,
-        // goods minerals are shared between colonies
-        for (BaseColony colony : star.getColonies()) {
-            if (!equalEmpireKey(colony.getEmpireKey(), empireKey)) {
-                continue;
-            }
-
-            ArrayList<BaseBuildRequest> buildRequests = new ArrayList<BaseBuildRequest>();
-            for (BaseBuildRequest br : star.getBuildRequests()) {
-                if (br.getColonyKey().equals(colony.getKey())) {
-                    buildRequests.add(br);
-                }
-            }
-
+        // A second loop though the colonies, once the goods/minerals have been calculated. This
+        // way, goods minerals are shared between colonies
+        for (ColonyStatus colonyStatus : empireStatus.colonies) {
             // not all build requests will be processed this turn. We divide up the population
             // based on the number of ACTUAL build requests they'll be working on this turn
             int numValidBuildRequests = 0;
-            for (BaseBuildRequest br : buildRequests) {
-                if (br.getStartTime().compareTo(now.plus(dt)) > 0) {
+            for (BuildStatus buildStatus : colonyStatus.builds) {
+                if (buildStatus.startTime.compareTo(now.plus(dt)) > 0) {
                     continue;
                 }
 
                 // the end_time will be accurate, since it'll have been updated last step
-                if (br.getEndTime().compareTo(now) < 0 && br.getEndTime().compareTo(year2k) > 0) {
+                if (buildStatus.endTime.compareTo(now) < 0
+                        && buildStatus.endTime.compareTo(year2k) > 0) {
                     continue;
                 }
 
@@ -307,10 +235,10 @@ public class Simulation {
 
             // If we have pending build requests, we'll have to update them as well
             if (numValidBuildRequests > 0) {
-                float totalWorkers = colony.getPopulation() * colony.getConstructionFocus();
+                float totalWorkers = colonyStatus.population * colonyStatus.getConstructionFocus();
                 float workersPerBuildRequest = totalWorkers / numValidBuildRequests;
                 log(String.format("--- Building [buildRequests=%d] [planetIndex=%d] [totalWorker=%.2f]",
-                        numValidBuildRequests, colony.getPlanetIndex(), totalWorkers));
+                        numValidBuildRequests, colonyStatus.getPlanetIndex(), totalWorkers));
 
                 // OK, we can spare at least ONE population
                 if (workersPerBuildRequest < 1.0f) {
@@ -320,35 +248,36 @@ public class Simulation {
                 // divide the minerals up per build request, so they each get a share. I'm not sure
                 // if we should portion minerals out by how 'big' the build request is, but we'll
                 // see how this goes initially
-                float mineralsPerBuildRequest = totalMinerals / numValidBuildRequests;
+                float mineralsPerBuildRequest = empireStatus.totalMinerals / numValidBuildRequests;
 
-                for (BaseBuildRequest br : buildRequests) {
-                    Design design = BaseDesignManager.i.getDesign(br.getDesignKind(), br.getDesignID());
+                for (BuildStatus buildStatus : colonyStatus.builds) {
+                    Design design = buildStatus.getDesign();
                     log(String.format("---- Building [design=%s %s] [count=%d]",
-                            br.getDesignKind(), br.getDesignID(), br.getCount()));
+                            design.getDesignKind(), design.getID(), buildStatus.getCount()));
 
-                    DateTime startTime = br.getStartTime();
+                    DateTime startTime = buildStatus.startTime;
                     if (startTime.compareTo(now.plus(dt)) > 0) {
                         continue;
                     }
 
-                    // the build cost is defined by the original design, or possibly by the upgrade if that
-                    // is what it is.
+                    // the build cost is defined by the original design, or possibly by the upgrade
+                    // if that is what it is.
                     Design.BuildCost buildCost = design.getBuildCost();
-                    if (br.mExistingFleetID != null) {
+                    if (buildStatus.getExistingFleetID() != null) {
                         ShipDesign shipDesign = (ShipDesign) design;
-                        ShipDesign.Upgrade upgrade = shipDesign.getUpgrade(br.getUpgradeID());
+                        ShipDesign.Upgrade upgrade = shipDesign.getUpgrade(buildStatus.getUpgradeID());
                         buildCost = upgrade.getBuildCost();
                     }
 
-                    // So the build time the design specifies is the time to build the structure with
-                    // 100 workers available. Double the workers and you halve the build time. Halve
-                    // the workers and you double the build time.
-                    float totalBuildTimeInHours = (float)(br.getCount() * (double) buildCost.getTimeInSeconds() / 3600.0);
+                    // So the build time the design specifies is the time to build the structure
+                    // with 100 workers available. Double the workers and you halve the build time.
+                    // Halve the workers and you double the build time.
+                    float totalBuildTimeInHours = (float)(buildStatus.getCount()
+                            * (double) buildCost.getTimeInSeconds() / 3600.0);
                     totalBuildTimeInHours *= (100.0 / workersPerBuildRequest);
 
                     // the number of hours of work required, assuming we have all the minerals we need
-                    float timeRemainingInHours = (1.0f - br.getProgress(false)) * totalBuildTimeInHours;
+                    float timeRemainingInHours = (1.0f - buildStatus.progress) * totalBuildTimeInHours;
                     if (timeRemainingInHours < (10.0f / 3600.0f)) {
                         // if there's less than 10 seconds to go, just say it's done now.
                         timeRemainingInHours = 0.0f;
@@ -371,58 +300,62 @@ public class Simulation {
                     log(String.format("Progress this turn: %f", progressThisTurn));
                     if (progressThisTurn <= 0) {
                         DateTime endTime;
-                        timeRemainingInHours = (1.0f - br.getProgress(false)) * totalBuildTimeInHours;
+                        timeRemainingInHours = (1.0f - buildStatus.progress) * totalBuildTimeInHours;
                         if (timeRemainingInHours < (10.0f / 3600.0f)) {
                             endTime = now;
                         } else {
                             endTime = now.plus((long)(timeRemainingInHours * 3600.0f * 1000.0f));
                         }
-                        if (br.getEndTime().compareTo(endTime) > 0) {
-                            br.setEndTime(endTime);
+                        if (buildStatus.endTime.compareTo(endTime) > 0) {
+                            buildStatus.endTime = endTime;
                         }
                         log("    Finished this turn.");
                         continue;
                     }
 
                     // work out how many minerals we require for this turn
-                    float mineralsRequired = br.getCount() * buildCost.getCostInMinerals() * progressThisTurn;
+                    float mineralsRequired = buildStatus.getCount()
+                            * buildCost.getCostInMinerals() * progressThisTurn;
                     log(String.format("Cost in minerals: %f", mineralsRequired));
                     if (mineralsRequired > mineralsPerBuildRequest) {
                         // if we don't have enough minerals, we'll just do a percentage of the work
                         // this turn
-                        totalMinerals -= mineralsPerBuildRequest;
+                        empireStatus.totalMinerals -= mineralsPerBuildRequest;
                         float percentMineralsAvailable = mineralsPerBuildRequest / mineralsRequired;
-                        br.setProgress(br.getProgress(false) + (progressThisTurn * percentMineralsAvailable));
+                        buildStatus.progress = buildStatus.progress
+                                + (progressThisTurn * percentMineralsAvailable);
                         log(String.format("     Progress %.4f%% + %.4f%% (this turn, adjusted - %.4f%% originally) ",
-                            br.getProgress(false) * 100.0f,
+                            buildStatus.progress * 100.0f,
                             progressThisTurn * percentMineralsAvailable * 100.0f,
                             progressThisTurn * 100.0f));
                     } else {
                         // awesome, we have enough minerals so we can make some progress. We'll start by
                         // removing the minerals we need from the global pool...
-                        totalMinerals -= mineralsRequired;
-                        br.setProgress(br.getProgress(false) + progressThisTurn);
+                        empireStatus.totalMinerals -= mineralsRequired;
+                        buildStatus.progress = buildStatus.progress + progressThisTurn;
                         log(String.format("     Progress %.4f%% + %.4f%% (this turn)",
-                            br.getProgress(false) * 100.0f, progressThisTurn * 100.0f));
+                            buildStatus.progress * 100.0f, progressThisTurn * 100.0f));
                     }
-                    mineralsDeltaPerHour -= mineralsRequired / dtInHours;
+                    empireStatus.deltaMineralsPerHour -= mineralsRequired / dtInHours;
                     log(String.format("     Minerals [required=%.2f] [available=%.2f] [available per build=%.2f]",
-                            mineralsRequired, totalMinerals, mineralsPerBuildRequest));
+                            mineralsRequired, empireStatus.totalMinerals, mineralsPerBuildRequest));
 
                     // adjust the end_time for this turn
-                    timeRemainingInHours = (1.0f - br.getProgress(false)) * totalBuildTimeInHours;
+                    timeRemainingInHours = (1.0f - buildStatus.progress) * totalBuildTimeInHours;
                     if (timeRemainingInHours > 100000) {
-                        // this is waaaaaay too long! it's basically never going to finish, but cap it to
-                        // avoid overflow errors.
+                        // this is waaaaaay too long! it's basically never going to finish, but cap
+                        // it to avoid overflow errors.
                         timeRemainingInHours = 100000;
                     }
-                    DateTime endTime = now.plus((long)(dtUsed * 1000 * 3600) + (long)(timeRemainingInHours * 1000 * 3600));
-                    br.setEndTime(endTime);
-                    log(String.format("     End Time: %s (%.2f hrs)", endTime, Seconds.secondsBetween(now, endTime).getSeconds() / 3600.0f));
+                    DateTime endTime = now.plus((long)(dtUsed * 1000 * 3600)
+                            + (long)(timeRemainingInHours * 1000 * 3600));
+                    buildStatus.endTime = endTime;
+                    log(String.format("     End Time: %s (%.2f hrs)", endTime,
+                            Seconds.secondsBetween(now, endTime).getSeconds() / 3600.0f));
 
-                    if (br.getProgress(false) >= 1.0f) {
+                    if (buildStatus.progress >= 1.0f) {
                         // if we've finished this turn, just set progress
-                        br.setProgress(1.0f);
+                        buildStatus.progress = 1.0f;
                     }
                 }
             }
@@ -430,87 +363,74 @@ public class Simulation {
 
         // Finally, update the population. The first thing we need to do is evenly distribute goods
         // between all of the colonies.
-        float totalGoodsPerHour = totalPopulation / 10.0f;
-        if (totalPopulation > 0.0001f && totalGoodsPerHour < 10.0f) {
+        float totalGoodsPerHour = empireStatus.totalPopulation / 10.0f;
+        if (empireStatus.totalPopulation > 0.0001f && totalGoodsPerHour < 10.0f) {
             totalGoodsPerHour = 10.0f;
         }
         float totalGoodsRequired = totalGoodsPerHour * dtInHours;
-        goodsDeltaPerHour -= totalGoodsPerHour;
+        empireStatus.deltaGoodsPerHour -= totalGoodsPerHour;
 
         // If we have more than total_goods_required stored, then we're cool. Otherwise, our population
         // suffers...
         float goodsEfficiency = 1.0f;
-        if (totalGoodsRequired > totalGoods && totalGoodsRequired > 0) {
-            goodsEfficiency = totalGoods / totalGoodsRequired;
+        if (totalGoodsRequired > empireStatus.totalGoods && totalGoodsRequired > 0) {
+            goodsEfficiency = empireStatus.totalGoods / totalGoodsRequired;
         }
 
         log(String.format("--- Updating Population [goods required=%.2f] [goods available=%.2f] [efficiency=%.2f]",
-                          totalGoodsRequired, totalGoods, goodsEfficiency));
+                          totalGoodsRequired, empireStatus.totalGoods, goodsEfficiency));
 
         // subtract all the goods we'll need
-        totalGoods -= totalGoodsRequired;
-        if (totalGoods <= 0.0f) {
+        empireStatus.totalGoods -= totalGoodsRequired;
+        if (empireStatus.totalGoods <= 0.0f) {
             // We've run out of goods! That's bad...
-            totalGoods = 0.0f;
+            empireStatus.totalGoods = 0.0f;
 
-            if (empire != null) {
-                if (empire.getGoodsZeroTime() == null || empire.getGoodsZeroTime().isAfter(now.plus(dt))) {
-                    log(String.format("    GOODS HAVE HIT ZERO"));
-                    empire.setGoodsZeroTime(now.plus(dt));
-                }
+            if (empireStatus.goodsZeroTime == null
+                    || empireStatus.goodsZeroTime.isAfter(now.plus(dt))) {
+                log(String.format("    GOODS HAVE HIT ZERO"));
+                empireStatus.goodsZeroTime = now.plus(dt);
             }
         }
 
         // now loop through the colonies and update the population/goods counter
-        for (BaseColony colony : star.getColonies()) {
-            if (!equalEmpireKey(colony.getEmpireKey(), empireKey)) {
-                continue;
-            }
-
+        for (ColonyStatus colonyStatus : empireStatus.colonies) {
             float populationIncrease;
             if (goodsEfficiency >= 1.0f) {
-                populationIncrease = Math.max(colony.getPopulation(), 10.0f);
-                populationIncrease *= colony.getPopulationFocus() * 0.5f;
+                populationIncrease = Math.max(colonyStatus.population, 10.0f);
+                populationIncrease *= colonyStatus.getPopulationFocus() * 0.5f;
             } else {
-                populationIncrease = Math.max(colony.getPopulation(), 10.0f);
-                populationIncrease *= (1.0f - colony.getPopulationFocus());
+                populationIncrease = Math.max(colonyStatus.population, 10.0f);
+                populationIncrease *= (1.0f - colonyStatus.getPopulationFocus());
                 populationIncrease *= 0.25f * (goodsEfficiency - 1.0f);
             }
 
-            colony.setPopulationDelta(populationIncrease);
+            colonyStatus.populationDelta = populationIncrease;
             float populationIncreaseThisTurn = populationIncrease * dtInHours;
 
-            float newPopulation = colony.getPopulation() + populationIncreaseThisTurn;
+            float newPopulation = colonyStatus.population + populationIncreaseThisTurn;
             if (newPopulation < 1.0f) {
                 newPopulation = 0.0f;
-            } else if (newPopulation > colony.getMaxPopulation()) {
-                newPopulation = colony.getMaxPopulation();
+            } else if (newPopulation > colonyStatus.getMaxPopulation()) {
+                newPopulation = colonyStatus.getMaxPopulation();
             }
-            if (newPopulation < 100.0f && colony.isInCooldown()) {
+            if (newPopulation < 100.0f && colonyStatus.isInCooldown()) {
                 newPopulation = 100.0f;
             }
             log(String.format("    Colony[%d]: [delta=%.2f] [new=%.2f]",
-                              colony.getPlanetIndex(), populationIncrease, newPopulation));
-            colony.setPopulation(newPopulation);
+                              colonyStatus.getPlanetIndex(), populationIncrease, newPopulation));
+            colonyStatus.population = newPopulation;
         }
 
-        if (totalGoods > maxGoods) {
-            totalGoods = maxGoods;
+        if (empireStatus.totalGoods > empireStatus.maxGoods) {
+            empireStatus.totalGoods = empireStatus.maxGoods;
         }
-        if (totalMinerals > maxMinerals) {
-            totalMinerals = maxMinerals;
-        }
-
-        if (empire != null) {
-            empire.setTotalGoods(totalGoods);
-            empire.setTotalMinerals(totalMinerals);
-            empire.setDeltaGoodsPerHour(goodsDeltaPerHour);
-            empire.setDeltaMineralsPerHour(mineralsDeltaPerHour);
-            empire.setTaxPerHour(totalTaxPerHour);
+        if (empireStatus.totalMinerals > empireStatus.maxMinerals) {
+            empireStatus.totalMinerals = empireStatus.maxMinerals;
         }
     }
 
-    private void simulateCombat(BaseStar star, DateTime now, Duration dt) {
+    private void simulateCombat(SimulationStatus status, DateTime now, Duration dt) {
         // if there's no fleets in ATTACKING mode, then there's nothing to do
         int numAttacking = 0;
         for (BaseFleet fleet : star.getFleets()) {

@@ -7,7 +7,9 @@ import org.joda.time.DateTime;
 
 import au.com.codeka.common.Log;
 import au.com.codeka.common.messages.BuildRequest;
+import au.com.codeka.common.messages.Building;
 import au.com.codeka.common.messages.Colony;
+import au.com.codeka.common.messages.Fleet;
 import au.com.codeka.common.messages.GenericError;
 import au.com.codeka.common.messages.Star;
 import au.com.codeka.common.model.BuildingDesign;
@@ -16,6 +18,7 @@ import au.com.codeka.common.model.Design.Dependency;
 import au.com.codeka.common.model.DesignKind;
 import au.com.codeka.common.model.ShipDesign;
 import au.com.codeka.common.msghelpers.BuildHelper;
+import au.com.codeka.common.msghelpers.FleetHelper;
 import au.com.codeka.common.msghelpers.StarHelper;
 import au.com.codeka.warworlds.server.RequestException;
 import au.com.codeka.warworlds.server.data.SqlStmt;
@@ -65,30 +68,30 @@ public class BuildQueueController {
 
         // check build limits
         if (design.getDesignKind() == DesignKind.BUILDING
-                && buildRequest.getExistingBuildingKey() == null) {
+                && buildRequest.existing_building_key == null) {
             BuildingDesign buildingDesign = (BuildingDesign) design;
 
             if (buildingDesign.getMaxPerColony() > 0) {
                 int maxPerColony = buildingDesign.getMaxPerColony();
                 int numThisColony = 0;
-                for (BaseBuilding building : colony.getBuildings()) {
-                    if (building.getDesignID().equals(buildRequest.getDesignID())) {
+                for (Building building : StarHelper.getBuildings(star, colony)) {
+                    if (building.design_id.equals(buildRequest.design_id)) {
                         numThisColony ++;
                     }
                 }
-                for (BaseBuildRequest baseBuildRequest : star.getBuildRequests()) {
+                for (BuildRequest baseBuildRequest : star.build_requests) {
                     BuildRequest otherBuildRequest = (BuildRequest) baseBuildRequest;
-                    if (otherBuildRequest.getColonyID() == colony.getID() &&
-                        otherBuildRequest.getDesignID().equals(buildRequest.getDesignID())) {
+                    if (otherBuildRequest.colony_key.equals(colony.key) &&
+                        otherBuildRequest.design_id.equals(buildRequest.design_id)) {
                         numThisColony ++;
                     }
                 }
 
                 if (numThisColony >= maxPerColony) {
                     throw new RequestException(400,
-                            Messages.GenericError.ErrorCode.CannotBuildMaxPerColonyReached,
+                            GenericError.ErrorCode.CannotBuildMaxPerColonyReached,
                             String.format("Cannot build %s, maximum per colony reached.",
-                                          buildRequest.getDesign().getDisplayName()));
+                                          BuildHelper.getDesign(buildRequest).getDisplayName()));
                 }
             }
 
@@ -105,16 +108,16 @@ public class BuildQueueController {
                                 " AND design_id = ?" +
                             " )";
                 try(SqlStmt stmt = db.prepare(sql)) {
-                    stmt.setInt(1, buildRequest.getEmpireID());
-                    stmt.setString(2, buildRequest.getDesignID());
-                    stmt.setInt(3, buildRequest.getEmpireID());
-                    stmt.setString(4, buildRequest.getDesignID());
+                    stmt.setInt(1, Integer.parseInt(buildRequest.empire_key));
+                    stmt.setString(2, buildRequest.design_id);
+                    stmt.setInt(3, Integer.parseInt(buildRequest.empire_key));
+                    stmt.setString(4, buildRequest.design_id);
                     Long numPerEmpire = stmt.selectFirstValue(Long.class);
                     if (numPerEmpire >= buildingDesign.getMaxPerEmpire()) {
                         throw new RequestException(400,
-                                Messages.GenericError.ErrorCode.CannotBuildMaxPerColonyReached,
+                                GenericError.ErrorCode.CannotBuildMaxPerColonyReached,
                                 String.format("Cannot build %s, maximum per empire reached.",
-                                              buildRequest.getDesign().getDisplayName()));
+                                              BuildHelper.getDesign(buildRequest).getDisplayName()));
                     }
                 } catch (Exception e) {
                     throw new RequestException(e);
@@ -122,101 +125,94 @@ public class BuildQueueController {
             }
         }
 
-        if (buildRequest.getDesignKind() == DesignKind.BUILDING
-                && buildRequest.getExistingBuildingKey() != null) {
+        if (buildRequest.build_kind == BuildRequest.BUILD_KIND.BUILDING
+                && buildRequest.existing_building_key != null) {
             BuildingDesign buildingDesign = (BuildingDesign) design;
 
             // if we're upgrading a building, make sure we don't upgrade it twice!
-            for (BaseBuildRequest baseBuildRequest : star.getBuildRequests()) {
+            for (BuildRequest baseBuildRequest : star.build_requests) {
                 BuildRequest otherBuildRequest = (BuildRequest) baseBuildRequest;
-                if (otherBuildRequest.getExistingBuildingKey() == null) {
+                if (otherBuildRequest.existing_building_key == null) {
                     continue;
                 }
-                if (otherBuildRequest.getExistingBuildingID() == buildRequest.getExistingBuildingID()) {
+                if (otherBuildRequest.existing_building_key.equals(buildRequest.existing_building_key)) {
                     throw new RequestException(400,
-                            Messages.GenericError.ErrorCode.CannotBuildDependencyNotMet,
+                            GenericError.ErrorCode.CannotBuildDependencyNotMet,
                             String.format("Cannot upgrade %s, upgrade is already in progress.",
-                                          buildRequest.getDesign().getDisplayName()));
+                                          BuildHelper.getDesign(buildRequest).getDisplayName()));
                 }
             }
 
             Building existingBuilding = null;
-            for (BaseBuilding baseBuilding : colony.getBuildings()) {
-                if (baseBuilding.getKey().equals(buildRequest.getExistingBuildingKey())) {
-                    existingBuilding = (Building) baseBuilding;
+            for (Building building : StarHelper.getBuildings(star, colony)) {
+                if (building.key.equals(buildRequest.existing_building_key)) {
+                    existingBuilding = building;
                 }
             }
             if (existingBuilding == null) {
                 throw new RequestException(400,
-                        Messages.GenericError.ErrorCode.CannotBuildDependencyNotMet,
+                        GenericError.ErrorCode.CannotBuildDependencyNotMet,
                         String.format("Cannot upgrade %s, original building no longer exists.",
-                                      buildRequest.getDesign().getDisplayName()));
+                                      BuildHelper.getDesign(buildRequest).getDisplayName()));
             }
 
             // make sure the existing building isn't already at the maximum level
-            if (existingBuilding.getLevel() == buildingDesign.getUpgrades().size() + 1) {
+            if (existingBuilding.level == buildingDesign.getUpgrades().size() + 1) {
                throw new RequestException(400,
-                        Messages.GenericError.ErrorCode.CannotBuildMaxLevelReached,
+                        GenericError.ErrorCode.CannotBuildMaxLevelReached,
                         String.format("Cannot update %s, already at maximum level.",
-                                buildRequest.getDesign().getDisplayName()));
+                                BuildHelper.getDesign(buildRequest).getDisplayName()));
             }
 
             // check dependencies for this specific level
             ArrayList<Dependency> dependencies = buildingDesign.getDependencies(
-                    existingBuilding.getLevel() + 1);
+                    existingBuilding.level + 1);
             for (Design.Dependency dependency : dependencies) {
-                if (!dependency.isMet(colony)) {
+                if (!dependency.isMet(star, colony)) {
                     throw new RequestException(400,
-                            Messages.GenericError.ErrorCode.CannotBuildDependencyNotMet,
+                            GenericError.ErrorCode.CannotBuildDependencyNotMet,
                             String.format("Cannot upgrade %s as level %d %s is required.",
-                                          buildRequest.getDesign().getDisplayName(),
+                                          BuildHelper.getDesign(buildRequest).getDisplayName(),
                                           dependency.getLevel(),
                                           design.getDisplayName()));
                 }
             }
         }
 
-        if (buildRequest.getDesignKind() == DesignKind.SHIP
-                && buildRequest.getExistingFleetID() != null) {
+        if (buildRequest.build_kind == BuildRequest.BUILD_KIND.SHIP
+                && buildRequest.existing_fleet_id != null) {
             ShipDesign shipDesign = (ShipDesign) design;
-            log.info("BUILD : checking other upgrades for this ship. buildRequest.getExistingFleetID() = " + buildRequest.getExistingFleetID());
 
             // if we're upgrading a ship, make sure we don't upgrade it twice!
-            for (BaseBuildRequest baseBuildRequest : star.getBuildRequests()) {
-                BuildRequest otherBuildRequest = (BuildRequest) baseBuildRequest;
-                if (otherBuildRequest.getExistingFleetID() == null) {
-                    log.info("BUILD : otherBuildRequest has existingFleetID == null");
+            for (BuildRequest existingBuildRequest : star.build_requests) {
+                if (existingBuildRequest.existing_fleet_id == null) {
                     continue;
                 }
-                if ((int) otherBuildRequest.getExistingFleetID()
-                        == (int) buildRequest.getExistingFleetID()) {
+                if (existingBuildRequest.existing_fleet_id == buildRequest.existing_fleet_id) {
                     throw new RequestException(400,
-                            Messages.GenericError.ErrorCode.CannotBuildDependencyNotMet,
+                            GenericError.ErrorCode.CannotBuildDependencyNotMet,
                             String.format("Cannot upgrade %s, upgrade is already in progress.",
                                     shipDesign.getDisplayName()));
-                } else {
-                    log.info("BUILD : otherBuildRequest.getExistingFleetID() == "+otherBuildRequest.getExistingFleetID());
                 }
             }
 
             Fleet existingFleet = null;
-            for (BaseFleet baseFleet : star.getFleets()) {
-                Fleet fleet = (Fleet) baseFleet;
-                if (fleet.getID() == buildRequest.getExistingFleetID()) {
+            for (Fleet fleet : star.fleets) {
+                if (Integer.parseInt(fleet.key) == buildRequest.existing_fleet_id) {
                     existingFleet = fleet;
                 }
             }
             if (existingFleet == null) {
                 throw new RequestException(400,
-                        Messages.GenericError.ErrorCode.CannotBuildDependencyNotMet,
+                        GenericError.ErrorCode.CannotBuildDependencyNotMet,
                         String.format("Cannot upgrade %s, original fleet no longer exists.",
                                 shipDesign.getDisplayName()));
             }
 
             // make sure the existing fleet doesn't already have the upgrade
-            if (existingFleet.getUpgrade(buildRequest.getUpgradeID()) != null) {
+            if (FleetHelper.getFleetUpgrade(existingFleet, buildRequest.upgrade_id) != null) {
                 throw new RequestException(400,
-                        Messages.GenericError.ErrorCode.CannotBuildMaxLevelReached,
+                        GenericError.ErrorCode.CannotBuildMaxLevelReached,
                         String.format("Cannot update %s, already has upgrade.",
                                 shipDesign.getDisplayName()));
             }
@@ -229,26 +225,25 @@ public class BuildQueueController {
                        " end_time)" +
                     " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)";
         try (SqlStmt stmt = db.prepare(sql, Statement.RETURN_GENERATED_KEYS)) {
-            stmt.setInt(1, buildRequest.getStarID());
-            stmt.setInt(2, buildRequest.getPlanetIndex());
-            stmt.setInt(3, buildRequest.getColonyID());
-            stmt.setInt(4, buildRequest.getEmpireID());
-            if (buildRequest.getExistingBuildingKey() != null) {
-                stmt.setInt(5, buildRequest.getExistingBuildingID());
+            stmt.setInt(1, Integer.parseInt(buildRequest.star_key));
+            stmt.setInt(2, buildRequest.planet_index);
+            stmt.setInt(3, Integer.parseInt(buildRequest.colony_key));
+            stmt.setInt(4, Integer.parseInt(buildRequest.empire_key));
+            if (buildRequest.existing_building_key != null) {
+                stmt.setInt(5, Integer.parseInt(buildRequest.existing_building_key));
             } else {
                 stmt.setNull(5);
             }
-            stmt.setInt(6, buildRequest.getDesignKind().getValue());
-            stmt.setString(7, buildRequest.getDesignID());
-            stmt.setString(8, buildRequest.getNotes());
-            stmt.setInt(9, buildRequest.getExistingFleetID());
-            stmt.setString(10, buildRequest.getUpgradeID());
-            stmt.setInt(11, buildRequest.getCount());
-            stmt.setDouble(12, buildRequest.getProgress(false));
-            stmt.setDateTime(13, buildRequest.getStartTime());
-            stmt.setDateTime(14, buildRequest.getEndTime());
+            stmt.setInt(6, buildRequest.build_kind.getValue());
+            stmt.setString(7, buildRequest.design_id);
+            stmt.setString(8, buildRequest.notes);
+            stmt.setInt(9, buildRequest.existing_fleet_id);
+            stmt.setString(10, buildRequest.upgrade_id);
+            stmt.setInt(11, buildRequest.count);
+            stmt.setDouble(12, buildRequest.progress);
+            stmt.setDateTime(13, new DateTime(buildRequest.start_time * 1000));
+            stmt.setDateTime(14, new DateTime(buildRequest.end_time * 1000));
             stmt.update();
-            buildRequest.setID(stmt.getAutoGeneratedID());
         } catch(Exception e) {
             throw new RequestException(e);
         }

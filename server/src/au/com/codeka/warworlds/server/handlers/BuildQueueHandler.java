@@ -2,57 +2,55 @@ package au.com.codeka.warworlds.server.handlers;
 
 import org.joda.time.DateTime;
 
-import au.com.codeka.common.model.BaseColony;
+import au.com.codeka.common.messages.BuildRequest;
+import au.com.codeka.common.messages.Colony;
+import au.com.codeka.common.messages.Star;
 import au.com.codeka.common.model.Simulation;
-import au.com.codeka.common.protobuf.Messages;
 import au.com.codeka.warworlds.server.RequestException;
 import au.com.codeka.warworlds.server.RequestHandler;
 import au.com.codeka.warworlds.server.ctrl.BuildQueueController;
 import au.com.codeka.warworlds.server.ctrl.StarController;
 import au.com.codeka.warworlds.server.data.DB;
 import au.com.codeka.warworlds.server.data.Transaction;
-import au.com.codeka.warworlds.server.model.BuildRequest;
-import au.com.codeka.warworlds.server.model.Colony;
-import au.com.codeka.warworlds.server.model.Star;
 
 public class BuildQueueHandler extends RequestHandler {
     @Override
     protected void post() throws RequestException {
-        Messages.BuildRequest build_request_pb = getRequestBody(Messages.BuildRequest.class);
+        BuildRequest buildRequest = getRequestBody(BuildRequest.class);
         try {
-            tryPost(build_request_pb);
+            tryPost(buildRequest);
         } catch (Exception e) {
             throw new RequestException(e);
         }
     }
 
-    private void tryPost(Messages.BuildRequest build_request_pb) throws Exception {
+    private void tryPost(BuildRequest buildRequest) throws Exception {
         try (Transaction t = DB.beginTransaction()) {
-            Star star = new StarController(t).getStar(Integer.parseInt(build_request_pb.getStarKey()));
+            Star star = new StarController(t).getStar(Integer.parseInt(buildRequest.star_key));
             if (star == null) {
                 throw new RequestException(404);
             }
 
             Colony colony = null;
-            for (BaseColony c : star.getColonies()) {
-                if (c.getKey().equals(build_request_pb.getColonyKey())) {
+            for (Colony c : star.colonies) {
+                if (c.key.equals(buildRequest.colony_key)) {
                     colony = (Colony) c;
                 }
             }
-            if (colony == null || colony.getEmpireID() == null) {
+            if (colony == null || colony.empire_key == null) {
                 throw new RequestException(404);
             }
-            if (colony.getEmpireID() != getSession().getEmpireID()) {
+            if (Integer.parseInt(colony.empire_key) != getSession().getEmpireID()) {
                 throw new RequestException(403);
             }
 
             new Simulation().simulate(star);
 
-            BuildRequest buildRequest = new BuildRequest();
-            buildRequest.fromProtocolBuffer(build_request_pb);
-            buildRequest.setPlanetIndex(colony.getPlanetIndex());
-            buildRequest.setStartTime(DateTime.now());
-            buildRequest.setEndTime(DateTime.now().plusMinutes(5));
+            BuildRequest sanitizedBuildRequest = new BuildRequest.Builder(buildRequest)
+                .planet_index(colony.planet_index)
+                .start_time(DateTime.now().getMillis() / 1000)
+                .end_time(DateTime.now().plusMinutes(5).getMillis() / 1000)
+                .build();
             new BuildQueueController(t).build(buildRequest);
 
             // add the build request to the star and simulate again
