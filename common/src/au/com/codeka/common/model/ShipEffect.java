@@ -1,7 +1,9 @@
 package au.com.codeka.common.model;
 
+import au.com.codeka.common.messages.Star;
 import au.com.codeka.common.model.BaseFleet;
 import au.com.codeka.common.model.BaseStar;
+import au.com.codeka.common.simulation.FleetStatus;
 
 /**
  * This is the base \see DesignEffect for ships.
@@ -21,9 +23,7 @@ public class ShipEffect extends Design.Effect {
     public void onOtherArrived(BaseStar star, BaseFleet fleet, BaseFleet otherFleet) {
     }
 
-    /**
-     * This is called if we're idle and someone attacks us.
-     */
-    public void onAttacked(BaseStar star, BaseFleet fleet) {
+    /** This is called if we're idle and someone attacks us. */
+    public void onAttacked(Star star, FleetStatus fleet) {
     }
 }

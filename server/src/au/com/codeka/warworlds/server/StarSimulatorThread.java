@@ -4,12 +4,12 @@ import org.joda.time.DateTime;
 import org.joda.time.Seconds;
 
 import au.com.codeka.common.Log;
-import au.com.codeka.common.model.Simulation;
+import au.com.codeka.common.messages.Star;
+import au.com.codeka.common.simulation.Simulator;
 import au.com.codeka.warworlds.server.ctrl.StarController;
 import au.com.codeka.warworlds.server.data.DB;
 import au.com.codeka.warworlds.server.data.SqlResult;
 import au.com.codeka.warworlds.server.data.SqlStmt;
-import au.com.codeka.warworlds.server.model.Star;
 
 /**
  * This is a background thread that runs every 2 seconds and simulates
@@ -91,7 +91,7 @@ public class StarSimulatorThread {
                 return seconds * 1000;
             }
 
-            new Simulation().simulate(star);
+            new Simulator().simulate(star);
             new StarController().update(star);
 
             long endTime = System.currentTimeMillis();

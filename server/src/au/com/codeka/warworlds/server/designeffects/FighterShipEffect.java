@@ -3,6 +3,7 @@ package au.com.codeka.warworlds.server.designeffects;
 import org.joda.time.DateTime;
 
 import au.com.codeka.common.Log;
+import au.com.codeka.common.messages.Star;
 import au.com.codeka.common.model.BaseFleet;
 import au.com.codeka.common.model.BaseFleet.Stance;
 import au.com.codeka.common.model.BaseStar;
@@ -10,6 +11,7 @@ import au.com.codeka.common.model.DesignKind;
 import au.com.codeka.common.model.ShipDesign;
 import au.com.codeka.common.model.ShipEffect;
 import au.com.codeka.common.model.Simulation;
+import au.com.codeka.common.simulation.FleetStatus;
 import au.com.codeka.warworlds.server.model.DesignManager;
 import au.com.codeka.warworlds.server.model.Fleet;
 
@@ -93,10 +95,8 @@ public class FighterShipEffect extends ShipEffect {
         ((Fleet) fleet).attack(DateTime.now());
     }
 
-    /** This is called if we're idle and someone attacks us. */
     @Override
-    public void onAttacked(BaseStar star, BaseFleet fleet) {
-        log.info(String.format("Fleet #%s has been attacked, switching to attack mode.", fleet.getKey()));
-        ((Fleet) fleet).attack(DateTime.now());
+    public void onAttacked(Star star, FleetStatus fleet) {
+        fleet.attack(DateTime.now());
     }
 }

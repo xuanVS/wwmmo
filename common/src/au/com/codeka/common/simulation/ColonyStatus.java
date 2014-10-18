@@ -8,7 +8,7 @@ import au.com.codeka.common.messages.Colony;
 import au.com.codeka.common.messages.Planet;
 import au.com.codeka.common.messages.Star;
 
-/** Represents the state of a single {@link Colony} during a {@link Simulation}. */
+/** Represents the state of a single {@link Colony} during a {@link Simulator}. */
 public class ColonyStatus {
     private final Star star;
     private final Colony.Builder colony;

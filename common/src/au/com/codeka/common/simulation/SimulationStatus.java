@@ -1,14 +1,12 @@
 package au.com.codeka.common.simulation;
 
 import java.util.Map;
-import java.util.Set;
 import java.util.TreeMap;
 
 import org.joda.time.DateTime;
 
 import au.com.codeka.common.messages.Colony;
 import au.com.codeka.common.messages.Fleet;
-import au.com.codeka.common.messages.Planet;
 import au.com.codeka.common.messages.Star;
 
 /**
@@ -16,12 +14,13 @@ import au.com.codeka.common.messages.Star;
  * like once the simulation is complete.
  */
 public class SimulationStatus {
-    private final Simulation.LogHandler logHandler;
+    private final Simulator.LogHandler logHandler;
     private final Star star;
 
-    private Map<String, EmpireStatus> empires;
+    public final Map<String, EmpireStatus> empires;
+    public CombatStatus combatStatus;
 
-    public SimulationStatus(Star star, Simulation.LogHandler logHandler) {
+    public SimulationStatus(Star star, Simulator.LogHandler logHandler) {
         this.star = star;
         this.logHandler = logHandler;
 
@@ -33,12 +32,14 @@ public class SimulationStatus {
         }
     }
 
-    public Set<String> getEmpires() {
-        return empires.keySet();
+    public Star getStar() {
+        return star;
     }
 
-    public EmpireStatus getEmpire(String empireKey) {
-        return empires.get(empireKey);
+    /** Prepare to simulate combat. Returns {@code false} if there's no combat to simulate. */
+    public boolean prepareCombat(DateTime now) {
+        combatStatus = new CombatStatus(star, now);
+        return combatStatus.hasAttackingFleets(now);
     }
 
     /** Gets the {@link DateTime} we should begin the simulation from. */
